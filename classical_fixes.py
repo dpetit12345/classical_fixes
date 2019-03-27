@@ -74,6 +74,10 @@ import re
 import os
 import unicodedata
 
+import ctypes  # An included library with Python install.
+def Mbox(title, text, style):
+    return ctypes.windll.user32.MessageBoxW(0, text, title, style)
+
 def stripAccent(inputstring):
     stripped = ''.join(c for c in unicodedata.normalize('NFD', inputstring)
                   if unicodedata.category(c) != 'Mn')
@@ -133,6 +137,7 @@ class ClassicalFixes(BaseAction):
             ['\\s{2,}',' ']
         ]
 
+        Mbox('Your title', 'Your text', 0)
         
         log.debug('Reading File')
 
@@ -141,7 +146,7 @@ class ClassicalFixes(BaseAction):
         if os.path.exists(filepath):
             log.debug('File exists')
             try:
-                with open('e:/artists.csv', 'r', encoding='utf-8') as artistfile:
+                with open(filepath, 'r', encoding='utf-8') as artistfile:
                     artistlines = artistfile.readlines()
                 log.debug('File read successfully')
             except:
