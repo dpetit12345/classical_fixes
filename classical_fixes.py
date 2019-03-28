@@ -97,7 +97,7 @@ def reverseName(inputString):
 
 #TODO: Validate subgenres against this list
 #ACCEPTABLE_SUBGENRES = {'Concerto', 'Orchestral', 'Opera', 'Chamber Music', 'Vocal', 'Choral', 'Solo', 'Symphonic'}
-ORCH_RE = re.compile('[Oo]rchestr|[Oo]rkest|[Pp]hilharmoni|[Cc]onsort|[Ee]nsemb')
+ORCH_RE = re.compile('[Oo]rchestr|[Oo]rkest|[Pp]hilharmoni|[Cc]onsort|[Ee]nsemb|[Ss]infonia|[Ss]ymphon')
 # DATE1_RE = re.compile('([0-9]{4})[ .\\-/][0-9]{1,2}[ .\\-/][0-9]{1,2}')
 # DATE2_RE = re.compile('[0-9]{1,2}[ .\\-/][0-9]{1,2}[ .\\-/]([0-9]{4})')
 #BRACKET_RE = re.compile('\\[(?![Ll][Ii][Vv][Ee]|[Bb][Oo][Oo]|[Ii][Mm]|[Ff][Ll][Aa][Cc]|[[Dd][Ss][Dd]|[Mm][Pp][3]|[Dd][Ss][Ff])[a-zA-Z0-9]{1,}\\]')
@@ -152,16 +152,17 @@ class ArtistLookup():
 class ClassicalFixes(BaseAction):
     NAME = 'Do classical fixes'
 
-    def callback(self, objs):
-        log.debug('Classical Fixes started')
-
+    def processRegExes(f):
+        # regexes for title and album name
+        log.debug('Executing regex substitutions')
+        
         regexes = [
             ['\\b[Nn][Uu][Mm][Bb][Ee][Rr][ ]*([0-9])','#\\1'],  #Replace "Number 93" with #93
             ['\\b[Nn][Oo][.]?[ ]*([0-9])','#\\1'], #No. 99 -> #99
             ['\\b[Nn][Rr][.]?[ ]*([0-9])','#\\1'], #Nr. 99 -> #99
             ['\\b[Nn][Bb][Rr][.]?\\s([0-9])', '#\\1'], #Nbr. 99 -> #99
             ['\\b[Oo][Pp][Uu][Ss][ ]*([0-9])','Op. \\1'], #Opus 99 -> Op. 99
-			['\\b[Oo][Pp][.]?[ ]*([0-9])','Op. \\1'], #OP.   99 -> Op. 99
+            ['\\b[Oo][Pp][.]?[ ]*([0-9])','Op. \\1'], #OP.   99 -> Op. 99
             ['\\b[Ss][Yy][Mm][ |.][ ]*([0-9])','Symphony \\1'], #Sym. -> Symphony
             ['\\b[Ss][Yy][Mm][Pp][Hh][Oo][Nn][Ii][Ee][ ]*[#]?([0-9])','Symphony #\\1'],  #Symphonie -> symphony
             ['\\b[Mm][Ii][Nn][.]','min.'],
@@ -177,7 +178,22 @@ class ClassicalFixes(BaseAction):
             ['[,]([^ ])', ', \\1'],
             ['\\s{2,}',' ']
         ]
-      
+        
+        
+        for regex in regexes:
+            # log.debug(regex[0] + ' - ' + regex[1]) 
+            trackName = f.metadata['title']
+            albumName = f.metadata['album']
+            # log.debug('Was: ' + trackName + ' | ' + albumName)
+            trackName = re.sub(regex[0], regex[1], trackName)
+            albumName = re.sub(regex[0], regex[1], albumName)
+            # log.debug('Is now: ' + trackName + ' | ' + albumName)
+            f.metadata['title'] = trackName
+            f.metadata['album'] = albumName        
+
+    def callback(self, objs):
+        log.debug('Classical Fixes started')
+     
         log.debug('Reading File')
 
         log.debug('Script path: ' + os.path.dirname(os.path.abspath(__file__)))
@@ -450,18 +466,18 @@ class ClassicalFixes(BaseAction):
                 #remove [] in album title, except for live, bootleg, flac*, mp3* dsd* dsf* and [import]
                 f.metadata['album'] = re.sub('\\[(?![Ll][Ii][Vv][Ee]|[Bb][Oo][Oo]|[Ii][Mm]|[Ff][Ll][Aa][Cc]|[[Dd][Ss][Dd]|[Mm][Pp][3]|[Dd][Ss][Ff])[a-zA-Z0-9]{1,}\\]', '',  f.metadata['album'])
 
-                #regexes for title and album name
-                log.debug('Executing regex substitutions')
-                for regex in regexes:
-                    #log.debug(regex[0] + ' - ' + regex[1]) 
-                    trackName = f.metadata['title']
-                    albumName = f.metadata['album']
-                    #log.debug('Was: ' + trackName + ' | ' + albumName)
-                    trackName = re.sub(regex[0], regex[1], trackName)
-                    albumName = re.sub(regex[0], regex[1], albumName)
-                    #log.debug('Is now: ' + trackName + ' | ' + albumName)
-                    f.metadata['title'] = trackName
-                    f.metadata['album'] = albumName
+                # # regexes for title and album name
+                # log.debug('Executing regex substitutions')
+                # for regex in regexes:
+                    # # log.debug(regex[0] + ' - ' + regex[1]) 
+                    # trackName = f.metadata['title']
+                    # albumName = f.metadata['album']
+                    # # log.debug('Was: ' + trackName + ' | ' + albumName)
+                    # trackName = re.sub(regex[0], regex[1], trackName)
+                    # albumName = re.sub(regex[0], regex[1], albumName)
+                    # # log.debug('Is now: ' + trackName + ' | ' + albumName)
+                    # f.metadata['title'] = trackName
+                    # f.metadata['album'] = albumName
 
 
                 log.debug('Fixing genre')
@@ -474,6 +490,46 @@ class ClassicalFixes(BaseAction):
 
             cluster.update()
 
+
+DISC_RE = re.compile('(.*)[Dd][Ii][Ss][CcKk][ ]*([0-9]*)')
+
+class CombineDiscs(BaseAction):
+    NAME = 'Combine discs into single album'
+
+    def callback(self, objs):
+        log.debug('Combine Discs started')
+
+        #go through the track in the cluster        
+        allmatch = True
+        for cluster in objs:
+            if not isinstance(cluster, Cluster) or not cluster.files:
+                continue
+
+
+            log.debug(cluster)
+            
+            #First make sure all the clusters have album title in the regex
+            result = DISC_RE.match(cluster.metadata['album'])
+            if not result:
+                allmatch = False
+                continue
+            
+            # for i, f in enumerate(cluster.files):
+
+                # if not f or not f.metadata:
+                    # log.debug('No file/metadata/title for [%i]' % (i))
+                    # continue
+                
+            #cluster.metadata['album'] = 'Changed the album'
+
+            #cluster.update()
+        if allmatch:
+            log.debug('All have it')
+        else:
+            log.debug('not all have it')
+
+
+register_cluster_action(CombineDiscs())
 
 register_cluster_action(ClassicalFixes())
 register_album_action(AlbumAction())
