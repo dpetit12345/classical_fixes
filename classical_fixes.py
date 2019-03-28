@@ -20,7 +20,7 @@
 PLUGIN_NAME = 'Classical Fixes'
 PLUGIN_AUTHOR = 'Dan Petit'
 PLUGIN_DESCRIPTION = '''
-Fix items associated with classical music.
+Adds 2 plugin menus to the clustering pane. The first fixes common tagging inconsistencies with classical music (see below). The second combines discs in a multi-disc set into 1 disc.
 
 <ol>
   <li>
@@ -49,14 +49,14 @@ Fix items associated with classical music.
 </li>
   
 
-  <li>The track numbers will be set based on the sequential order they appear within the cluster.</li>
 </ol>
 
 How to use:
 <ol>
   <li>Cluster a group of files</li>
-  <li>Right click on the cluster</li>
+  <li>Right click on the cluster(s)</li>
   <li>Then click => Do Classical Fixes</li>
+  <li>or click => Combine discs into single album</li>
 
 </ol>
 
@@ -97,35 +97,36 @@ def reverseName(inputString):
 
 #TODO: Validate subgenres against this list
 #ACCEPTABLE_SUBGENRES = {'Concerto', 'Orchestral', 'Opera', 'Chamber Music', 'Vocal', 'Choral', 'Solo', 'Symphonic'}
-ORCH_RE = re.compile('[Oo]rchestr|[Oo]rkest|[Pp]hilharmoni|[Cc]onsort|[Ee]nsemb|[Ss]infonia|[Ss]ymphon')
+
+ORCH_RE = re.compile('[Oo]rchestr|[Oo]rkest|[Pp]hilharmoni|[Cc]onsort|[Ee]nsemb|[Ss]infonia|[Ss]ymphon|[Bb]and')
 # DATE1_RE = re.compile('([0-9]{4})[ .\\-/][0-9]{1,2}[ .\\-/][0-9]{1,2}')
 # DATE2_RE = re.compile('[0-9]{1,2}[ .\\-/][0-9]{1,2}[ .\\-/]([0-9]{4})')
 #BRACKET_RE = re.compile('\\[(?![Ll][Ii][Vv][Ee]|[Bb][Oo][Oo]|[Ii][Mm]|[Ff][Ll][Aa][Cc]|[[Dd][Ss][Dd]|[Mm][Pp][3]|[Dd][Ss][Ff])[a-zA-Z0-9]{1,}\\]')
 #\[(?![Ll][Ii][Vv][Ee]|[Bb][Oo][Oo]|[Ii][Mm]|[Ff][Ll][Aa][Cc]|[[Dd][Ss][Dd]|[Mm][Pp][3]|[Dd][Ss][Ff])[a-zA-Z0-9]{1,}\]
 
-class AlbumAction(BaseAction):
-    NAME = 'Menu for AlbumAction'
+# class AlbumAction(BaseAction):
+    # NAME = 'Menu for AlbumAction'
 
-    def callback(self, objs):
-        log.debug('AlbumAction called.')
+    # def callback(self, objs):
+        # log.debug('AlbumAction called.')
 
-class TrackAction(BaseAction):
-    NAME = 'Menu for TrackAction'
+# class TrackAction(BaseAction):
+    # NAME = 'Menu for TrackAction'
 
-    def callback(self, objs):
-        log.debug('TrackAction called.')
+    # def callback(self, objs):
+        # log.debug('TrackAction called.')
 
-class ClusterListAction(BaseAction):
-    NAME = 'Menu for ClusterListAction'
+# class ClusterListAction(BaseAction):
+    # NAME = 'Menu for ClusterListAction'
 
-    def callback(self, objs):
-        log.debug('ClusterListAction called.')
+    # def callback(self, objs):
+        # log.debug('ClusterListAction called.')
 
-class FileAction(BaseAction):
-    NAME = 'Menu for FileAction'
+# class FileAction(BaseAction):
+    # NAME = 'Menu for FileAction'
 
-    def callback(self, objs):
-        log.debug('FileAction called.')        
+    # def callback(self, objs):
+        # log.debug('FileAction called.')        
 
 class ArtistLookup():
     key=''
@@ -138,24 +139,25 @@ class ArtistLookup():
 
     def __init__ (self, line):
         lineparts = line.split('|')
-        self.key=lineparts[0].strip()
-        self.name=lineparts[1].strip()
-        self.dates=lineparts[3].strip()
-        self.sortorder=lineparts[2].strip()
-        self.sortorderwithdates=lineparts[4].strip()
-        self.primaryrole=lineparts[5].strip()
-        self.primaryepoque=lineparts[6].strip()
-
+        try:
+            self.key=lineparts[0].strip()
+            self.name=lineparts[1].strip()
+            self.dates=lineparts[3].strip()
+            self.sortorder=lineparts[2].strip()
+            self.sortorderwithdates=lineparts[4].strip()
+            self.primaryrole=lineparts[5].strip()
+            self.primaryepoque=lineparts[6].strip()
+        except:
+            log.debug('Bad line: ' + line)
 
 
 
 class ClassicalFixes(BaseAction):
     NAME = 'Do classical fixes'
 
-    def processRegExes(f):
-        # regexes for title and album name
-        log.debug('Executing regex substitutions')
-        
+    def callback(self, objs):
+        log.debug('Classical Fixes started')
+
         regexes = [
             ['\\b[Nn][Uu][Mm][Bb][Ee][Rr][ ]*([0-9])','#\\1'],  #Replace "Number 93" with #93
             ['\\b[Nn][Oo][.]?[ ]*([0-9])','#\\1'], #No. 99 -> #99
@@ -178,36 +180,23 @@ class ClassicalFixes(BaseAction):
             ['[,]([^ ])', ', \\1'],
             ['\\s{2,}',' ']
         ]
-        
-        
-        for regex in regexes:
-            # log.debug(regex[0] + ' - ' + regex[1]) 
-            trackName = f.metadata['title']
-            albumName = f.metadata['album']
-            # log.debug('Was: ' + trackName + ' | ' + albumName)
-            trackName = re.sub(regex[0], regex[1], trackName)
-            albumName = re.sub(regex[0], regex[1], albumName)
-            # log.debug('Is now: ' + trackName + ' | ' + albumName)
-            f.metadata['title'] = trackName
-            f.metadata['album'] = albumName        
-
-    def callback(self, objs):
-        log.debug('Classical Fixes started')
-     
-        log.debug('Reading File')
+      
+        #log.debug('Reading File')
 
         log.debug('Script path: ' + os.path.dirname(os.path.abspath(__file__)))
         filepath = os.path.dirname(os.path.abspath(__file__)) + '/artists.csv'
         if os.path.exists(filepath):
-            log.debug('File exists')
+            #log.debug('File exists')
             try:
                 with open(filepath, 'r', encoding='utf-8') as artistfile:
                     artistlines = artistfile.readlines()
                 log.debug('File read successfully')
             except:
                 log.debug('Error opening artists file')
+                return
         else:
             log.debug('Sibling file does not exist')
+            return
 
 
         #populate the lookup
@@ -216,7 +205,7 @@ class ClassicalFixes(BaseAction):
             art = ArtistLookup(artistline)
             artistLookup[art.key] = art
         
-        #go through the track in the cluster        
+        #go through the tracks in the cluster        
         for cluster in objs:
             if not isinstance(cluster, Cluster) or not cluster.files:
                 continue
@@ -466,18 +455,18 @@ class ClassicalFixes(BaseAction):
                 #remove [] in album title, except for live, bootleg, flac*, mp3* dsd* dsf* and [import]
                 f.metadata['album'] = re.sub('\\[(?![Ll][Ii][Vv][Ee]|[Bb][Oo][Oo]|[Ii][Mm]|[Ff][Ll][Aa][Cc]|[[Dd][Ss][Dd]|[Mm][Pp][3]|[Dd][Ss][Ff])[a-zA-Z0-9]{1,}\\]', '',  f.metadata['album'])
 
-                # # regexes for title and album name
-                # log.debug('Executing regex substitutions')
-                # for regex in regexes:
-                    # # log.debug(regex[0] + ' - ' + regex[1]) 
-                    # trackName = f.metadata['title']
-                    # albumName = f.metadata['album']
-                    # # log.debug('Was: ' + trackName + ' | ' + albumName)
-                    # trackName = re.sub(regex[0], regex[1], trackName)
-                    # albumName = re.sub(regex[0], regex[1], albumName)
-                    # # log.debug('Is now: ' + trackName + ' | ' + albumName)
-                    # f.metadata['title'] = trackName
-                    # f.metadata['album'] = albumName
+                #regexes for title and album name
+                log.debug('Executing regex substitutions')
+                for regex in regexes:
+                    #log.debug(regex[0] + ' - ' + regex[1]) 
+                    trackName = f.metadata['title']
+                    albumName = f.metadata['album']
+                    #log.debug('Was: ' + trackName + ' | ' + albumName)
+                    trackName = re.sub(regex[0], regex[1], trackName)
+                    albumName = re.sub(regex[0], regex[1], albumName)
+                    #log.debug('Is now: ' + trackName + ' | ' + albumName)
+                    f.metadata['title'] = trackName
+                    f.metadata['album'] = albumName
 
 
                 log.debug('Fixing genre')
@@ -500,39 +489,99 @@ class CombineDiscs(BaseAction):
         log.debug('Combine Discs started')
 
         #go through the track in the cluster        
-        allmatch = True
+
+        albumArtist = ''
+        albumName = ''
+        
         for cluster in objs:
             if not isinstance(cluster, Cluster) or not cluster.files:
-                continue
-
-
+                log.debug('One of the items selected is not a cluster. Exiting.')
+                return
+            
             log.debug(cluster)
+            log.debug(type(objs))
+            
+            #TODO: check the first one then the rest must match
             
             #First make sure all the clusters have album title in the regex
             result = DISC_RE.match(cluster.metadata['album'])
             if not result:
-                allmatch = False
-                continue
+                log.debug('Not all clusters selected appear to belong to the same multi-disc set.')
+                return
+            else:
+                if not albumName:
+                    albumName = result.group(1).strip(';,-: ')
+                    albumArtist = cluster.metadata['albumartist']
+                else:
+                    #name must match
+                    if result.group(1).strip(';,-: ') != albumName:
+                        log.debug('Album name mismatch. Not all clusters selected appear to belong to the same multi-disc set.')
+                        return
             
-            # for i, f in enumerate(cluster.files):
-
-                # if not f or not f.metadata:
-                    # log.debug('No file/metadata/title for [%i]' % (i))
-                    # continue
+        log.debug('All clusters appear to be part of a multi-disc set. Combining.')
+        log.debug(albumName + ' by: ' + ''.join(albumArtist))
+        totalClusters = len(objs)
+        log.debug('There are %i clusters' % totalClusters)
+        currdisc = 1
+               
+        while (currdisc <= totalClusters):
+            matchingCluster = None
+            #look for curr disc # in the clusters by checking the regex. If found, that's the disc#. 
+            for cluster in objs:
+                #group 1 is the album title (needs to be stripped)
+                #group 2 is the disc #
+                log.debug('Processing ' + cluster.metadata['album'])
+                log.debug(cluster)
+                result = DISC_RE.match(cluster.metadata['album'])
+                if result:
+                    log.debug('Have result ' + result.group(1) + ' - ' + result.group(2))
+                    
+                #log.debug(result.group(2) + ' - %i' % currdisc)
+                #log.debug(type(result.group(2)))
+                foundDisc = int(result.group(2))
+                if foundDisc == currdisc:
+                    log.debug('Found disc %i in album' % currdisc)
+                    matchingCluster = cluster
+                    break
+            
+            if not matchingCluster:
+                #didnt find it by disc # in the title, so find the first file in each cluster and see if it matches
+                for cluster in objs:
+                    for i, f in enumerate(cluster.files):
+                        if not f or not f.metadata:
+                            continue
+                        if int(f.metadata['discnumber']) == currdisc:
+                            matchingCluster = cluster
+                            break
+                    if matchingCluster:
+                        break
+            
+            if matchingCluster:
+                #pass
+                #found the disc. Set its title, and albumartist of the cluster
+                #matchingCluster.metadata['album'] = albumName
+                #matchingCluster.metadata['albumartist'] = albumArtist
+                #matchingCluster.update()
                 
-            #cluster.metadata['album'] = 'Changed the album'
-
-            #cluster.update()
-        if allmatch:
-            log.debug('All have it')
-        else:
-            log.debug('not all have it')
-
+                # #set title, albumartist, disc number, and total disc tags on all tracks
+                for i, f in enumerate(matchingCluster.files):
+                    f.metadata['album'] = albumName
+                    f.metadata['albumartist'] = albumArtist
+                    f.metadata['discnumber'] = currdisc
+                    f.metadata['totaldiscs'] = totalClusters
+                    
+            # else:
+                # log.debug('Disc %i not found. Aborting' % currdisc)
+                # return
+                
+            currdisc = currdisc + 1
+            
+        
 
 register_cluster_action(CombineDiscs())
 
 register_cluster_action(ClassicalFixes())
-register_album_action(AlbumAction())
-register_clusterlist_action(ClusterListAction())
-register_track_action(TrackAction())
-register_file_action(FileAction())
+# register_album_action(AlbumAction())
+# register_clusterlist_action(ClusterListAction())
+# register_track_action(TrackAction())
+# register_file_action(FileAction())
