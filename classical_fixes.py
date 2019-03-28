@@ -177,9 +177,7 @@ class ClassicalFixes(BaseAction):
             ['[,]([^ ])', ', \\1'],
             ['\\s{2,}',' ']
         ]
-
-        Mbox('Your title', 'Your text', 0)
-        
+      
         log.debug('Reading File')
 
         log.debug('Script path: ' + os.path.dirname(os.path.abspath(__file__)))
@@ -221,9 +219,6 @@ class ClassicalFixes(BaseAction):
                     log.debug('No file/metadata/title for [%i]' % (i))
                     continue
 
-                #for key, value in f.metadata.items() :
-                #    log.debug ('key: %s' % key)
-                #    log.debug ('value: %s' % value)
 
                 if 'conductor' in f.metadata:
                     conductorTag = f.metadata['conductor']
@@ -242,48 +237,26 @@ class ClassicalFixes(BaseAction):
                     log.debug('Have albumartist: ' + f.metadata['albumartist'])
                     albumArtistsTag = f.metadata['albumartist']
                     albumArtistsTag = albumArtistsTag.replace('; ',';')
-                    #log.debug('albumartist tag: ' + albumArtistsTag)
                     trackAlbumArtists = albumArtistsTag.split(';')
-                    #log.debug('Track Albumartists length: %i' % len(trackAlbumArtists))
 
                 if 'album artist' in f.metadata:
                     log.debug('Have album artist: ' + f.metadata['album artist'])
                     albumArtistsTag = f.metadata['album artist']
                     albumArtistsTag = albumArtistsTag.replace('; ',';')
-                    #log.debug('Album artist tag: ' + albumArtistsTag)
                     trackAlbumArtists = albumArtistsTag.split(';')
-                    #log.debug('Track Album artists length: %i' % len(trackAlbumArtists))
 
                 if 'Album artist' in f.metadata:
                     log.debug('Have Album artist: ' + f.metadata['Album artist'])
                     albumArtistsTag = f.metadata['Album artist']
                     albumArtistsTag = albumArtistsTag.replace('; ',';')
-                    #log.debug('Album artist tag: ' + albumArtistsTag)
                     trackAlbumArtists = albumArtistsTag.split(';')
-                    #log.debug('Track Album artists length: %i' % len(trackAlbumArtists))
 
                 if 'Album Artist' in f.metadata:
                     log.debug('Have Album Artist: ' + f.metadata['Album Artist'])
                     albumArtistsTag = f.metadata['Album Artist']
                     albumArtistsTag = albumArtistsTag.replace('; ',';')
-                    #log.debug('Album Artist tag: ' + albumArtistsTag)
                     trackAlbumArtists = albumArtistsTag.split(';')
-                    #log.debug('Track Album artists length: %i' % len(trackAlbumArtists))
 
-                #fix the dates
-                # log.debug('date is: |' + f.metadata['date'] + '|')
-                # log.debug('Date is: |' + f.metadata['Date'] + '|')
-                # if 'date' in f.metadata:
-                    # date = f.metadata['date']
-                    # if date and len(date) > 4:
-                        #is it xx-xx-xxxx or xxxx-xx-xx-xxxx
-                        # if DATE1_RE.search(date):
-                            # date = date[0:4]
-                        # elif DATE2_RE.search(date):
-                            # date = date[-4]
-                        # f.metadata['date'] = date
-                            
-                        
 
                 #if there is no orchestra tag, go through the artists and see if there is one that matches the orchestra list
                 log.debug('Checking artists to fill conductor, composer, and orchestra tags if needed.')
@@ -498,10 +471,8 @@ class ClassicalFixes(BaseAction):
                         f.metadata['origgenre'] = f.metadata['genre']
 
                 f.metadata['genre'] = 'Classical'
-                
-              
 
-        cluster.update()
+            cluster.update()
 
 
 register_cluster_action(ClassicalFixes())
