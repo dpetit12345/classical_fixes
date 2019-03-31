@@ -395,9 +395,9 @@ class ClassicalFixes(BaseAction):
                     #if there is a composer, look it up against the list and replace what is there if it is different.
                     #same with view.
                     log.debug('Looking up composer')
-                    if 'composer' in f.metadata and f.metadata['compooser'] != '':
-                        #log.debug('There is a composer: ' + composerTag)
-                        composerKey = makeKey(f.metadata['compooser'])
+                    if 'composer' in f.metadata and f.metadata['composer'] != '':
+                        log.debug('There is a composer: ' + f.metadata['composer'])
+                        composerKey = makeKey(f.metadata['composer'])
                         #log.debug('Composerkey: ' + composerKey)
                         if composerKey in artistLookup:
                             foundComposer = artistLookup[composerKey]
@@ -417,7 +417,7 @@ class ClassicalFixes(BaseAction):
                             if 'composer view' not in f.metadata:
                                 #there is a composer, but it was not found on lookup. Make Last, First Composer view tag
                                 log.debug('Composer not found in lookup. Fabricating composer view tag.')
-                                f.metadata['composer view'] = reverseName(f.metadata['compooser'])
+                                f.metadata['composer view'] = reverseName(f.metadata['composer'])
                             
                     #if there is no orchestra, but there is an artist tag that contains a name that looks like an orchestra, use that
                     if 'orchestra' not in f.metadata:
@@ -518,6 +518,11 @@ class ClassicalFixes(BaseAction):
 
                     log.debug('Before - albumartist is: ' + f.metadata['albumartist'] + '|')
 
+                    #Fix this
+                    #TODO change various to various artists
+                    #todo; Add tag normalization
+                    
+                    
                     #if there is a composer tag, and it also exists in track or album artists, remove it.
                     if 'composer' in f.metadata:
                         log.debug('Searching for composer in artist and album artist tags')
