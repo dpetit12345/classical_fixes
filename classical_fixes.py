@@ -183,9 +183,11 @@ class ComposerFileAction(BaseAction):
             
             for track in objs:
                 if not track or not track.metadata:
+                    log.debug('No track metadata available')
                     continue
                 
                 if 'composer' not in track.metadata or 'composer view' not in track.metadata or 'epoque' not in track.metadata:
+                    log.debug('No composer metadata available')
                     continue
                     
                 name = track.metadata['composer']
@@ -291,9 +293,9 @@ class ClassicalFixes(BaseAction):
                     continue
 
                 for i, f in enumerate(cluster.files):
-                    conductorTag=''
-                    composerTag=''
-                    orchestraTag=''
+                    #conductorTag=''
+                    #composerTag=''
+                    #orchestraTag=''
                     composerViewTag=''
                     artistsTag = ''
                     albumArtistsTag =''
@@ -305,14 +307,14 @@ class ClassicalFixes(BaseAction):
                         continue
 
 
-                    if 'conductor' in f.metadata:
-                        conductorTag = f.metadata['conductor']
-                    if 'composer' in f.metadata:
-                        composerTag = f.metadata['composer']
-                    if 'orchestra' in f.metadata:
-                        orchestraTag = f.metadata['orchestra']
-                    if 'composer view' in f.metadata:
-                        composerViewTag = f.metadata['composer view']
+                    #if 'conductor' in f.metadata:
+                    #    conductorTag = f.metadata['conductor']
+                    #if 'composer' in f.metadata:
+                    #    composerTag = f.metadata['composer']
+                    #if 'orchestra' in f.metadata:
+                    #    orchestraTag = f.metadata['orchestra']
+                    #if 'composer view' in f.metadata:
+                    #    composerViewTag = f.metadata['composer view']
                     if 'artist' in f.metadata:
                         artistsTag = f.metadata['artist']
                         artistsTag = artistsTag.replace('; ',';')
@@ -342,25 +344,28 @@ class ClassicalFixes(BaseAction):
                         albumArtistsTag = albumArtistsTag.replace('; ',';')
                         trackAlbumArtists = albumArtistsTag.split(';')
 
-
-                    #if there is no orchestra tag, go through the artists and see if there is one that matches the orchestra list
+                    if albumArtistsTag == 'Various':
+                        albumArtistsTag = 'Various Artists'
+                    
+                    
                     log.debug('Checking artists to fill conductor, composer, and orchestra tags if needed.')
-
+#
                     for trackArtist in trackArtists:
                         trackArtistKey = makeKey(trackArtist)
                         if trackArtistKey in artistLookup:
                             foundArtist = artistLookup[trackArtistKey]
                             #log.debug ('Found track artist ' + trackArtist + ' in lookup list. Role is ' + foundArtist.primaryrole)
-                            if foundArtist.primaryrole =='Orchestra' and orchestraTag == '':
+                            if foundArtist.primaryrole =='Orchestra' and ('orchestra' not in f.metadata or f.metadata['orchestra'] == ''):
                                 f.metadata['orchestra'] = foundArtist.name    
-                                orchestraTag = foundArtist.name
-                            if foundArtist.primaryrole =='Conductor' and conductorTag == '':
+                                #orchestraTag = foundArtist.name
+                            if foundArtist.primaryrole =='Conductor' and ('conductor' not in f.metadata or f.metadata['conductor'] == ''):
                                 f.metadata['conductor'] = foundArtist.name    
-                                conductorTag = foundArtist.name
-                            if foundArtist.primaryrole =='Composer' and composerTag == '':                          
+                                #conductorTag = foundArtist.name
+                            if foundArtist.primaryrole =='Composer' and ('composer' not in f.metadata or f.metadata['composer'] == ''):
                                 f.metadata['composer'] = foundArtist.name
-                                composerTag = foundArtist.name
+                                #composerTag = foundArtist.name
                                 f.metadata['composer view'] = foundArtist.sortorderwithdates
+                                f.metadata['epoque'] = foundArtist.primaryepoque
                         else:
                             log.debug('No artists found for key: ' + trackArtistKey)
 
@@ -372,26 +377,27 @@ class ClassicalFixes(BaseAction):
                         if trackAlbumArtistKey in artistLookup:
                             foundArtist = artistLookup[trackAlbumArtistKey]
                             #log.debug ('Found track artist ' + trackArtist + ' in lookup list. Role is ' + foundArtist.primaryrole)
-                            if foundArtist.primaryrole =='Orchestra' and orchestraTag == '':
+                            if foundArtist.primaryrole =='Orchestra' and ('orchestra' not in f.metadata or f.metadata['orchestra'] == ''):
                                 f.metadata['orchestra'] = foundArtist.name    
-                                orchestraTag = foundArtist.name
-                            if foundArtist.primaryrole =='Conductor' and conductorTag == '':
+                                #orchestraTag = foundArtist.name
+                            if foundArtist.primaryrole =='Conductor' and ('conductor' not in f.metadata or f.metadata['conductor'] == ''):
                                 f.metadata['conductor'] = foundArtist.name    
-                                conductorTag = foundArtist.name
-                            if foundArtist.primaryrole =='Composer' and composerTag == '':                          
+                                #conductorTag = foundArtist.name
+                            if foundArtist.primaryrole =='Composer' and ('composer' not in f.metadata or f.metadata['composer'] == ''):
                                 f.metadata['composer'] = foundArtist.name
-                                composerTag = foundArtist.name
+                                #composerTag = foundArtist.name
                                 f.metadata['composer view'] = foundArtist.sortorderwithdates
+                                f.metadata['epoque'] = foundArtist.primaryepoque
                         else:
-                            log.debug('No artists found for key: ' + trackArtistKey)
+                            log.debug('No artists found for key: ' + trackAlbumArtistKey)
 
                     
                     #if there is a composer, look it up against the list and replace what is there if it is different.
                     #same with view.
                     log.debug('Looking up composer')
-                    if composerTag:
+                    if 'composer' in f.metadata and f.metadata['compooser'] != '':
                         #log.debug('There is a composer: ' + composerTag)
-                        composerKey = makeKey(composerTag)
+                        composerKey = makeKey(f.metadata['compooser'])
                         #log.debug('Composerkey: ' + composerKey)
                         if composerKey in artistLookup:
                             foundComposer = artistLookup[composerKey]
@@ -411,9 +417,9 @@ class ClassicalFixes(BaseAction):
                             if 'composer view' not in f.metadata:
                                 #there is a composer, but it was not found on lookup. Make Last, First Composer view tag
                                 log.debug('Composer not found in lookup. Fabricating composer view tag.')
-                                f.metadata['composer view'] = reverseName(composerTag)
+                                f.metadata['composer view'] = reverseName(f.metadata['compooser'])
                             
-                    #if there is no orchestra, but there is an artist tag that contains a name that looks like and orchestra, use that
+                    #if there is no orchestra, but there is an artist tag that contains a name that looks like an orchestra, use that
                     if 'orchestra' not in f.metadata:
                         for artist in trackArtists:
                             if ORCH_RE.search(artist):
@@ -453,7 +459,7 @@ class ClassicalFixes(BaseAction):
 
 
                     log.debug('checking for conductor and orchestra in artists')
-                    #if there is a conductor AND and orchestra tag, and they are both in the album artist tag, rearrange
+                    #if there is a conductor AND and orchestra tag, and they are both in the artist tag, rearrange
                     if 'conductor' in f.metadata and 'orchestra' in f.metadata:
                         log.debug('There is a conductor and orchestra tag')
                         foundConductor = False
@@ -533,7 +539,7 @@ class ClassicalFixes(BaseAction):
 
 
                     #remove [] in album title, except for live, bootleg, flac*, mp3* dsd* dsf* and [import]
-                    f.metadata['album'] = re.sub('\\[(?![Ll][Ii][Vv][Ee]|[Bb][Oo][Oo]|[Ii][Mm]|[Ff][Ll][Aa][Cc]|[[Dd][Ss][Dd]|[Mm][Pp][3]|[Dd][Ss][Ff])[a-zA-Z0-9]{1,}\\]', '',  f.metadata['album'])
+                    f.metadata['album'] = re.sub('\\[(?![Ll][Ii][Vv][Ee]|[Bb][Oo][Oo]|[Ii][Mm]|[Ff][Ll][Aa][Cc]|[[Dd][Ss][Dd]|[Mm][Pp][3]|[Dd][Ss][Ff])[a-zA-Z0-9 ]{1,}\\]', '',  f.metadata['album'])
 
                     #regexes for title and album name
                     log.debug('Executing regex substitutions')
@@ -570,94 +576,102 @@ class CombineDiscs(BaseAction):
     def callback(self, objs):
         log.debug('Combine Discs started')
 
-        #go through the track in the cluster        
-
-        albumArtist = ''
-        albumName = ''
-        
-        for cluster in objs:
-            if not isinstance(cluster, Cluster) or not cluster.files:
-                log.debug('One of the items selected is not a cluster. Exiting.')
-                return
+            #go through the track in the cluster        
+        try:
+            albumArtist = ''
+            albumName = ''
             
-            log.debug(cluster)
-            log.debug(type(objs))
-            
-            #TODO: check the first one then the rest must match
-            
-            #First make sure all the clusters have album title in the regex
-            result = DISC_RE.match(cluster.metadata['album'])
-            if not result:
-                log.debug('Not all clusters selected appear to belong to the same multi-disc set.')
-                return
-            else:
-                if not albumName:
-                    albumName = result.group(1).strip(';,-: ')
-                    albumArtist = cluster.metadata['albumartist']
-                else:
-                    #name must match
-                    if result.group(1).strip(';,-: ') != albumName:
-                        log.debug('Album name mismatch. Not all clusters selected appear to belong to the same multi-disc set.')
-                        return
-            
-        log.debug('All clusters appear to be part of a multi-disc set. Combining.')
-        log.debug(albumName + ' by: ' + ''.join(albumArtist))
-        totalClusters = len(objs)
-        log.debug('There are %i clusters' % totalClusters)
-        currdisc = 1
-               
-        while (currdisc <= totalClusters):
-            matchingCluster = None
-            #look for curr disc # in the clusters by checking the regex. If found, that's the disc#. 
             for cluster in objs:
-                #group 1 is the album title (needs to be stripped)
-                #group 2 is the disc #
-                log.debug('Processing ' + cluster.metadata['album'])
+                if not isinstance(cluster, Cluster) or not cluster.files:
+                    log.debug('One of the items selected is not a cluster. Exiting.')
+                    return
+                
                 log.debug(cluster)
+                log.debug(type(objs))
+                
+                #TODO: check the first one then the rest must match
+                
+                #First make sure all the clusters have album title in the regex
                 result = DISC_RE.match(cluster.metadata['album'])
-                if result:
-                    log.debug('Have result ' + result.group(1) + ' - ' + result.group(2))
-                    
-                #log.debug(result.group(2) + ' - %i' % currdisc)
-                #log.debug(type(result.group(2)))
-                foundDisc = int(result.group(2))
-                if foundDisc == currdisc:
-                    log.debug('Found disc %i in album' % currdisc)
-                    matchingCluster = cluster
-                    break
-            
-            if not matchingCluster:
-                #didnt find it by disc # in the title, so find the first file in each cluster and see if it matches
+                if not result:
+                    log.debug('Not all clusters selected appear to belong to the same multi-disc set.')
+                    return
+                else:
+                    if not albumName:
+                        albumName = result.group(1).strip(';,-: ')
+                        #albumArtist = cluster.metadata['albumartist']
+                    else:
+                        #name must match
+                        if result.group(1).strip(';,-: ') != albumName:
+                            log.debug('Album name mismatch. Not all clusters selected appear to belong to the same multi-disc set.')
+                            return
+                
+            log.debug('All clusters appear to be part of a multi-disc set. Combining.')
+            log.debug(albumName + ' by: ' + ''.join(albumArtist))
+            totalClusters = len(objs)
+            log.debug('There are %i clusters' % totalClusters)
+            currdisc = 1
+
+            albumdate = None
+            while (currdisc <= totalClusters):
+                matchingCluster = None
+                #look for curr disc # in the clusters by checking the regex. If found, that's the disc#. 
                 for cluster in objs:
-                    for i, f in enumerate(cluster.files):
-                        if not f or not f.metadata:
-                            continue
-                        if int(f.metadata['discnumber']) == currdisc:
-                            matchingCluster = cluster
-                            break
-                    if matchingCluster:
+                    #group 1 is the album title (needs to be stripped)
+                    #group 2 is the disc #
+                    log.debug('Processing ' + cluster.metadata['album'])
+                    log.debug(cluster)
+                    result = DISC_RE.match(cluster.metadata['album'])
+                    if result:
+                        log.debug('Have result ' + result.group(1) + ' - ' + result.group(2))
+                        
+                    #log.debug(result.group(2) + ' - %i' % currdisc)
+                    #log.debug(type(result.group(2)))
+                    foundDisc = int(result.group(2))
+                    if foundDisc == currdisc:
+                        log.debug('Found disc %i in album' % currdisc)
+                        matchingCluster = cluster
                         break
-            
-            if matchingCluster:
-                #pass
-                #found the disc. Set its title, and albumartist of the cluster
-                #matchingCluster.metadata['album'] = albumName
-                #matchingCluster.metadata['albumartist'] = albumArtist
-                #matchingCluster.update()
                 
-                # #set title, albumartist, disc number, and total disc tags on all tracks
-                for i, f in enumerate(matchingCluster.files):
-                    f.metadata['album'] = albumName
-                    f.metadata['albumartist'] = albumArtist
-                    f.metadata['discnumber'] = currdisc
-                    f.metadata['totaldiscs'] = totalClusters
+                if not matchingCluster:
+                    #didnt find it by disc # in the title, so find the first file in each cluster and see if it matches
+                    for cluster in objs:
+                        for i, f in enumerate(cluster.files):
+                            if not f or not f.metadata:
+                                continue
+                            if int(f.metadata['discnumber']) == currdisc:
+                                matchingCluster = cluster
+                                break
+                        if matchingCluster:
+                            break
+                
+                if matchingCluster:
+                    #pass
+                    #found the disc. Set its title, and albumartist of the cluster
+                    #matchingCluster.metadata['album'] = albumName
+                    #matchingCluster.metadata['albumartist'] = albumArtist
+                    #matchingCluster.update()
                     
-            # else:
-                # log.debug('Disc %i not found. Aborting' % currdisc)
-                # return
-                
-            currdisc = currdisc + 1
-            
+                    if currdisc == 1:
+                        albumArtist = matchingCluster.metadata['albumartist']
+                        
+                    # #set title, albumartist, disc number, and total disc tags on all tracks
+                    for i, f in enumerate(matchingCluster.files):
+                        if i == 0 and currdisc == 1:
+                            albumdate = f.metadata['date']
+                        f.metadata['album'] = albumName
+                        f.metadata['albumartist'] = albumArtist
+                        f.metadata['discnumber'] = currdisc
+                        f.metadata['totaldiscs'] = totalClusters
+                        f.metadata['date'] = albumdate
+                        
+                # else:
+                    # log.debug('Disc %i not found. Aborting' % currdisc)
+                    # return
+                    
+                currdisc = currdisc + 1
+        except Exception as e:
+            log.error('Combining error: ' + str(e))
         
 
 register_cluster_action(CombineDiscs())
