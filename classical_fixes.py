@@ -70,9 +70,11 @@ from picard import log
 from picard.cluster import Cluster
 from picard.album import Album
 from picard.ui.itemviews import BaseAction, register_cluster_action, register_album_action, register_clusterlist_action, register_file_action, register_track_action
+import types
 import re
 import os
 import unicodedata
+
 
 ORCH_RE = re.compile('[Oo]rchestr|[Oo]rkest|[Pp]hilharmoni|[Cc]onsort|[Ee]nsemb|[Ss]infonia|[Ss]ymphon|[Bb]and')
 
@@ -120,7 +122,7 @@ def upsertArtist(artistDict, name, sortOrderName, sortOrderNameWithDates, primar
     key = makeKey(name)
     
     artistDict[key] = ArtistLookup(key, name, sortOrderName, sortOrderNameWithDates, primaryRole, epoque)
-    
+    log.info('Added ' + name + ' to lookup.')
     if primaryRole != 'Orchestra':
         key = makeKey(getLastName(name))
         
@@ -168,8 +170,24 @@ def saveArtists(artistDict):
             for key, artist in artistDict.items():
                 line = artist.key + '|' + artist.name + '|' + artist.sortorder + '|' + artist.sortorderwithdates + '|' + artist.primaryrole + '|' + artist.primaryepoque    
                 artistFile.write(line + '\n')
+        log.info('Successfully saved artists lookup file.')
     except Exception as e:
         log.error('Error occured saving artists: ' + str(e))
+
+
+def expandList(thelist):
+    try:
+        outlist = []
+        inlist = thelist
+        if type(inlist) is not list:
+            inlist = [inlist]
+        for item in inlist:
+            cleaned = item.replace('; ', ';')
+            outlist += cleaned.split(';')
+        return outlist
+    except Exception as e:
+        log.error('Error expanding list: ' + str(e))
+    
 
 class ComposerFileAction(BaseAction):
     NAME = 'Add composer to lookup'
@@ -187,7 +205,7 @@ class ComposerFileAction(BaseAction):
                     continue
                 
                 if 'composer' not in track.metadata or 'composer view' not in track.metadata or 'epoque' not in track.metadata:
-                    log.debug('No composer metadata available')
+                    log.info('No composer metadata available')
                     continue
                     
                 name = track.metadata['composer']
@@ -293,12 +311,10 @@ class ClassicalFixes(BaseAction):
                     continue
 
                 for i, f in enumerate(cluster.files):
-                    #conductorTag=''
-                    #composerTag=''
-                    #orchestraTag=''
+                    log.info('Processing ' + str(f))
                     composerViewTag=''
-                    artistsTag = ''
-                    albumArtistsTag =''
+                    #artistsTag = ''
+                    #albumArtistsTag =''
                     trackArtists = []
                     trackAlbumArtists = []
 
@@ -306,105 +322,72 @@ class ClassicalFixes(BaseAction):
                         log.debug('No file/metadata/title for [%i]' % (i))
                         continue
 
-
-                    #if 'conductor' in f.metadata:
-                    #    conductorTag = f.metadata['conductor']
-                    #if 'composer' in f.metadata:
-                    #    composerTag = f.metadata['composer']
-                    #if 'orchestra' in f.metadata:
-                    #    orchestraTag = f.metadata['orchestra']
-                    #if 'composer view' in f.metadata:
-                    #    composerViewTag = f.metadata['composer view']
                     if 'artist' in f.metadata:
-                        artistsTag = f.metadata['artist']
-                        artistsTag = artistsTag.replace('; ',';')
-                        trackArtists = artistsTag.split(';')
+                        trackArtists = expandList(f.metadata['artist'])
+
+                    log.debug ('Normalized track artists: ' + str(trackArtists))
+
+                    if 'album artist' in f.metadata and 'albumartist' not in f.metadata:
+                        log.debug('Have album artist but no albumartist: ' + f.metadata['album artist'])
+                        f.metadata['albumArtist'] = f.metadata['album artist']
 
                     if 'albumartist' in f.metadata:
-                        log.debug('Have albumartist: ' + f.metadata['albumartist'])
-                        albumArtistsTag = f.metadata['albumartist']
-                        albumArtistsTag = albumArtistsTag.replace('; ',';')
-                        trackAlbumArtists = albumArtistsTag.split(';')
+                        trackAlbumArtists = expandList(f.metadata['albumartist'])                       
 
-                    if 'album artist' in f.metadata:
-                        log.debug('Have album artist: ' + f.metadata['album artist'])
-                        albumArtistsTag = f.metadata['album artist']
-                        albumArtistsTag = albumArtistsTag.replace('; ',';')
-                        trackAlbumArtists = albumArtistsTag.split(';')
-
-                    if 'Album artist' in f.metadata:
-                        log.debug('Have Album artist: ' + f.metadata['Album artist'])
-                        albumArtistsTag = f.metadata['Album artist']
-                        albumArtistsTag = albumArtistsTag.replace('; ',';')
-                        trackAlbumArtists = albumArtistsTag.split(';')
-
-                    if 'Album Artist' in f.metadata:
-                        log.debug('Have Album Artist: ' + f.metadata['Album Artist'])
-                        albumArtistsTag = f.metadata['Album Artist']
-                        albumArtistsTag = albumArtistsTag.replace('; ',';')
-                        trackAlbumArtists = albumArtistsTag.split(';')
-
-                    if albumArtistsTag == 'Various':
-                        albumArtistsTag = 'Various Artists'
-                    
+                    #TODO: move to normalize
+                    # if albumArtistsTag == 'Various':
+                        # albumArtistsTag = 'Various Artists'                   
                     
                     log.debug('Checking artists to fill conductor, composer, and orchestra tags if needed.')
-#
                     for trackArtist in trackArtists:
                         trackArtistKey = makeKey(trackArtist)
                         if trackArtistKey in artistLookup:
                             foundArtist = artistLookup[trackArtistKey]
-                            #log.debug ('Found track artist ' + trackArtist + ' in lookup list. Role is ' + foundArtist.primaryrole)
                             if foundArtist.primaryrole =='Orchestra' and ('orchestra' not in f.metadata or f.metadata['orchestra'] == ''):
-                                f.metadata['orchestra'] = foundArtist.name    
-                                #orchestraTag = foundArtist.name
+                                log.debug('assigning orchestra from artist tag: ' + foundArtist.name)
+                                f.metadata['orchestra'] = expandList(foundArtist.name)
                             if foundArtist.primaryrole =='Conductor' and ('conductor' not in f.metadata or f.metadata['conductor'] == ''):
-                                f.metadata['conductor'] = foundArtist.name    
-                                #conductorTag = foundArtist.name
+                                log.debug('assigning conductor from artist tag: ' + foundArtist.name)
+                                f.metadata['conductor'] = expandList(foundArtist.name)
                             if foundArtist.primaryrole =='Composer' and ('composer' not in f.metadata or f.metadata['composer'] == ''):
-                                f.metadata['composer'] = foundArtist.name
-                                #composerTag = foundArtist.name
-                                f.metadata['composer view'] = foundArtist.sortorderwithdates
+                                log.debug('assigning composer from artist tag: ' + foundArtist.name)
+                                f.metadata['composer'] = expandList(foundArtist.name)
+                                f.metadata['composer view'] = expandList(foundArtist.sortorderwithdates)
                                 f.metadata['epoque'] = foundArtist.primaryepoque
                         else:
                             log.debug('No artists found for key: ' + trackArtistKey)
 
                     log.debug('Checking album artists to fill conductor, composer, and orchestra tags if needed.')
-
-                    #log.debug('Track artists count: ' + len(trackAlbumArtists))
                     for albumArtist in trackAlbumArtists:
                         trackAlbumArtistKey = makeKey(albumArtist)
                         if trackAlbumArtistKey in artistLookup:
                             foundArtist = artistLookup[trackAlbumArtistKey]
-                            #log.debug ('Found track artist ' + trackArtist + ' in lookup list. Role is ' + foundArtist.primaryrole)
                             if foundArtist.primaryrole =='Orchestra' and ('orchestra' not in f.metadata or f.metadata['orchestra'] == ''):
-                                f.metadata['orchestra'] = foundArtist.name    
-                                #orchestraTag = foundArtist.name
+                                log.debug('assigning orchestra from albumartist tag: ' + foundArtist.name)
+                                f.metadata['orchestra'] = expandList(foundArtist.name)
                             if foundArtist.primaryrole =='Conductor' and ('conductor' not in f.metadata or f.metadata['conductor'] == ''):
-                                f.metadata['conductor'] = foundArtist.name    
-                                #conductorTag = foundArtist.name
+                                log.debug('assigning conductor from albumartist tag: ' + foundArtist.name)
+                                f.metadata['conductor'] = expandList(foundArtist.name)
                             if foundArtist.primaryrole =='Composer' and ('composer' not in f.metadata or f.metadata['composer'] == ''):
-                                f.metadata['composer'] = foundArtist.name
-                                #composerTag = foundArtist.name
-                                f.metadata['composer view'] = foundArtist.sortorderwithdates
+                                log.debug('assigning composer from albumartist tag: ' + foundArtist.name)
+                                f.metadata['composer'] = expandList(foundArtist.name)
+                                f.metadata['composer view'] = expandList(foundArtist.sortorderwithdates)
                                 f.metadata['epoque'] = foundArtist.primaryepoque
                         else:
-                            log.debug('No artists found for key: ' + trackAlbumArtistKey)
+                            log.debug('No albumartists found for key: ' + trackAlbumArtistKey)
 
                     
                     #if there is a composer, look it up against the list and replace what is there if it is different.
                     #same with view.
                     log.debug('Looking up composer')
                     if 'composer' in f.metadata and f.metadata['composer'] != '':
-                        log.debug('There is a composer: ' + f.metadata['composer'])
+                        log.debug('There is a composer: ' + str(f.metadata['composer']))
                         composerKey = makeKey(f.metadata['composer'])
                         #log.debug('Composerkey: ' + composerKey)
                         if composerKey in artistLookup:
                             foundComposer = artistLookup[composerKey]
                             if foundComposer.primaryrole == 'Composer':
                                 log.debug('found a composer - setting tags')
-                                #log.debug('existing Composer: |' + f.metadata['Composer'] + '| - composer: |' + f.metadata['composer'] + '|')
-                                #log.debug('existing Composer View: |' + f.metadata['Composer View'] + '| - composer view: |' + f.metadata['composer view'] + '|')
                                 f.metadata['Composer'] = ''
                                 f.metadata['composer'] = ''
                                 f.metadata['Composer View'] = ''
@@ -427,7 +410,7 @@ class ClassicalFixes(BaseAction):
                                 break
 
                     log.debug('checking for conductor and orchestra in album artists')
-                    #if there is a conductor AND and orchestra tag, and they are both in the album artist tag, rearrange
+                    #if there is a conductor AND and orchestra tag, and either are in the album artist tag, rearrange
                     if 'conductor' in f.metadata and 'orchestra' in f.metadata:
                         log.debug('There is a conductor and orchestra tag')
                         foundConductor = False
@@ -451,11 +434,9 @@ class ClassicalFixes(BaseAction):
                                 if artist != f.metadata['conductor'] and artist!=f.metadata['orchestra']:
                                     newAlbumArtistTag=newAlbumArtistTag+artist + '; '
                                 log.debug('Setting album artist to: ' + newAlbumArtistTag[:-2] + '|')
-                                if f.metadata['albumartist'] != newAlbumArtistTag[:-2]:
-                                    f.metadata['album artist'] = ''
-                                    f.metadata['Album artist'] = ''
-                                    f.metadata['Album Artist'] = ''
+                                if f.metadata['albumartist'] != newAlbumArtistTag[:-2].strip():
                                     f.metadata['albumartist'] = newAlbumArtistTag[:-2].strip()
+                                    f.metadata['album artist'] = f.metadata['albumartist']
 
 
                     log.debug('checking for conductor and orchestra in artists')
@@ -480,48 +461,36 @@ class ClassicalFixes(BaseAction):
                                 if artist != f.metadata['conductor'] and artist!=f.metadata['orchestra']:
                                     newArtistTag=newArtistTag+artist + '; '
                                 log.debug('Setting artist to: ' + newArtistTag[:-2] + '|')
-                                if f.metadata['artist'] != newArtistTag[:-2]:
-                                    f.metadata['artist'] = newArtistTag[:-2]
+                                if f.metadata['artist'] != newArtistTag[:-2].strip():
+                                    f.metadata['artist'] = newArtistTag[:-2].strip()
                                     
 
-
-                    log.debug('Reloading albumartist: ' + f.metadata['albumartist'])
-                    albumArtistsTag = f.metadata['albumartist']
-                    albumArtistsTag = albumArtistsTag.replace('; ',';')
-                    trackAlbumArtists = albumArtistsTag.split(';')
-
-                    artistsTag = f.metadata['artist']
-                    artistsTag = artistsTag.replace('; ',';')
-                    trackArtists = artistsTag.split(';')
+                    trackAlbumArtists = expandList(f.metadata['albumartist'])
+                    trackArtists = expandList(f.metadata['artist'])
 
 
-                    #At this point if there is no composer, but we find what look like a composer in the tags, move it
-                    if 'composer' not in f.metadata:
-                        for artist in trackArtists:
-                            key = makeKey(artist)
-                            if key in artistLookup:
-                                foundComposer = artistLookup[key]
-                                if foundComposer.primaryrole == 'Composer':
-                                    log.debug('Found composer ' + foundComposer.name + ' in track artist - moving')
-                                    f.metadata['composer'] = foundComposer.name
-                                    break
+                    #At this point if there is no composer, but we find what look likes a composer in the tags, move it
+                    # if 'composer' not in f.metadata:
+                        # for artist in trackArtists:
+                            # key = makeKey(artist)
+                            # if key in artistLookup:
+                                # foundComposer = artistLookup[key]
+                                # if foundComposer.primaryrole == 'Composer':
+                                    # log.debug('Found composer ' + foundComposer.name + ' in track artist - moving')
+                                    # f.metadata['composer'] = foundComposer.name
+                                    # break
 
-                    if 'composer' not in f.metadata:
-                        for artist in trackAlbumArtists:
-                            key = makeKey(artist)
-                            if key in artistLookup:
-                                foundComposer = artistLookup[key]
-                                if foundComposer.primaryrole == 'Composer':
-                                    log.debug('Found composer ' + foundComposer.name + ' in track artist - moving')
-                                    f.metadata['composer'] = foundComposer.name
-                                    break
+                    # if 'composer' not in f.metadata:
+                        # for artist in trackAlbumArtists:
+                            # key = makeKey(artist)
+                            # if key in artistLookup:
+                                # foundComposer = artistLookup[key]
+                                # if foundComposer.primaryrole == 'Composer':
+                                    # log.debug('Found composer ' + foundComposer.name + ' in track artist - moving')
+                                    # f.metadata['composer'] = foundComposer.name
+                                    # break
 
                     log.debug('Before - albumartist is: ' + f.metadata['albumartist'] + '|')
-
-                    #Fix this
-                    #TODO change various to various artists
-                    #todo; Add tag normalization
-                    
                     
                     #if there is a composer tag, and it also exists in track or album artists, remove it.
                     if 'composer' in f.metadata:
@@ -541,6 +510,17 @@ class ClassicalFixes(BaseAction):
                             f.metadata['albumartist'] = newAlbumArtistTag[:-2]
 
                     log.debug('After - albumartist is: ' + f.metadata['albumartist'] + '|')
+
+
+                    #TODO change various to various artists
+                    #todo; Add tag normalization
+                    if f.metadata['albumartist'] == 'Various':
+                        f.metadata['albumartist'] = 'Various Artists'
+                    
+                    if 'artist' not in f.metadata and 'albumartist' in f.metadata:
+                        f.metadata['artist'] = f.metadata['albumartist']
+                        
+                    f.metadata['album artist'] = f.metadata['albumartist']
 
 
                     #remove [] in album title, except for live, bootleg, flac*, mp3* dsd* dsf* and [import]
