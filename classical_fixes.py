@@ -523,8 +523,11 @@ class ClassicalFixes(BaseAction):
                     f.metadata['album artist'] = f.metadata['albumartist']
 
 
-                    #remove [] in album title, except for live, bootleg, flac*, mp3* dsd* dsf* and [import]
-                    f.metadata['album'] = re.sub('\\[(?![Ll][Ii][Vv][Ee]|[Bb][Oo][Oo]|[Ii][Mm]|[Ff][Ll][Aa][Cc]|[[Dd][Ss][Dd]|[Mm][Pp][3]|[Dd][Ss][Ff])[a-zA-Z0-9 ]{1,}\\]', '',  f.metadata['album'])
+                    #remove [] in album title, except for live, bootleg, flac*, mp3* dsd* dsf* and [import], [44k][192][196][88][mqa]
+                    #actually this would be better if if just looked for conductor including last name in the brackets
+                    f.metadata['album'] = re.sub('[[]' + getLastName(f.metadata['conductor']) + '[]]', '', f.metadata['album'], flags=re.IGNORECASE).strip()
+                    f.metadata['album'] = re.sub('[[]' + getLastName(f.metadata['composer']) + '[]]', '', f.metadata['album'], flags=re.IGNORECASE).strip()
+                    #f.metadata['album'] = re.sub('[[](?![Ll][Ii][Vv][Ee]|[44k]|[88k]|[Mm][Qq][Aa]|[Bb][Oo][Oo]|[Ii][Mm][Pp]|[Ff][Ll][Aa][Cc]|[[Dd][Ss][Dd]|[Mm][Pp][3]|[Dd][Ss][Ff])[a-zA-Z0-9 ]{1,}[]]', '',  f.metadata['album']).strip()
 
                     #regexes for title and album name
                     log.debug('Executing regex substitutions')
