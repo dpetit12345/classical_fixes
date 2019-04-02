@@ -114,8 +114,11 @@ class ArtistLookup():
 
 
 def getLastName(inputString):
-   parts = inputString.split()
-   return parts[-1]
+    parts = inputString.split()
+    if len(parts) > 0:
+        return parts[-1]
+    else:
+        return ''
 
 def upsertArtist(artistDict, name, sortOrderName, sortOrderNameWithDates, primaryRole, epoque):
     log.debug('Upserting artist: ' + name)
@@ -525,8 +528,11 @@ class ClassicalFixes(BaseAction):
 
                     #remove [] in album title, except for live, bootleg, flac*, mp3* dsd* dsf* and [import], [44k][192][196][88][mqa]
                     #actually this would be better if if just looked for conductor including last name in the brackets
-                    f.metadata['album'] = re.sub('[[]' + getLastName(f.metadata['conductor']) + '[]]', '', f.metadata['album'], flags=re.IGNORECASE).strip()
-                    f.metadata['album'] = re.sub('[[]' + getLastName(f.metadata['composer']) + '[]]', '', f.metadata['album'], flags=re.IGNORECASE).strip()
+                    
+                    if 'conductor' in f.metadata:
+                        f.metadata['album'] = re.sub('[[]' + getLastName(f.metadata['conductor']) + '[]]', '', f.metadata['album'], flags=re.IGNORECASE).strip()
+                    if 'composer' in f.metadata:
+                        f.metadata['album'] = re.sub('[[]' + getLastName(f.metadata['composer']) + '[]]', '', f.metadata['album'], flags=re.IGNORECASE).strip()
                     #f.metadata['album'] = re.sub('[[](?![Ll][Ii][Vv][Ee]|[44k]|[88k]|[Mm][Qq][Aa]|[Bb][Oo][Oo]|[Ii][Mm][Pp]|[Ff][Ll][Aa][Cc]|[[Dd][Ss][Dd]|[Mm][Pp][3]|[Dd][Ss][Ff])[a-zA-Z0-9 ]{1,}[]]', '',  f.metadata['album']).strip()
 
                     #regexes for title and album name
