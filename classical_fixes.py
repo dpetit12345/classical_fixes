@@ -664,6 +664,7 @@ class CombineDiscs(BaseAction):
                                 log.debug('Assigned date: ' + str(albumDate))
                             else:
                                 log.debug('No date found')
+                        log.info('Updating data for file: ' + f.filename)
                         f.metadata['album'] = albumName
                         f.metadata['albumartist'] = albumArtist
                         f.metadata['album artist'] = albumArtist
@@ -671,7 +672,18 @@ class CombineDiscs(BaseAction):
                         f.metadata['totaldiscs'] = totalClusters
                         f.metadata['date'] = str(albumDate)
                     
+                    #matchingCluster.metadata['album'] = albumName
+                    #matchingCluster.metadata['albumartist'] = albumArtist
+                    #matchingCluster.update()
                 currdisc = currdisc + 1
+                
+            log.info('Setting cluster-level data')
+            for cluster in objs:
+                cluster.metadata['album'] = albumName
+                cluster.metadata['albumartist'] = albumArtist
+                cluster.update()
+
+                
         except Exception as e:
             log.error('Combining error: ' + str(e))
         
