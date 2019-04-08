@@ -574,34 +574,46 @@ class CombineDiscs(BaseAction):
         try:
             albumArtist = ''
             albumName = ''
+            albumDate = ''
             
+            #Do some validation and make everything we're combining belongs to the same album and a multi-disc set.
             for cluster in objs:
                 if not isinstance(cluster, Cluster) or not cluster.files:
-                    log.debug('One of the items selected is not a cluster. Exiting.')
+                    log.info('One of the items selected is not a cluster. Exiting.')
                     return
                 
-                log.debug(cluster)
-                log.debug(type(objs))
+                #log.debug(cluster)
+                #log.debug(type(objs))
                 
                 #TODO: check the first one then the rest must match
                 
                 #First make sure all the clusters have album title in the regex
                 result = DISC_RE.match(cluster.metadata['album'])
                 if not result:
-                    log.debug('Not all clusters selected appear to belong to the same multi-disc set.')
+                    log.info('Not all clusters selected appear to belong to a multi-disc set.')
                     return
                 else:
                     if not albumName:
                         albumName = result.group(1).strip(';,-: ')
-                        #albumArtist = cluster.metadata['albumartist']
+                        # if 'albumartist' in cluster.metadata:
+                            # albumArtist = cluster.metadata['albumartist']
+                        # elif 'album artist' in cluster.metadata:
+                            # albumArtist = cluster.metadata['album artist']                            
+                        # if 'date' in cluster.metadata:
+                            # albumDate = cluster.metadata['date']
+                        # else:
+                            # log.debug('Date not found in first album')
                     else:
                         #name must match
                         if result.group(1).strip(';,-: ') != albumName:
-                            log.debug('Album name mismatch. Not all clusters selected appear to belong to the same multi-disc set.')
+                            log.info('Album name mismatch. Not all clusters selected appear to belong to the same multi-disc set.')
                             return
                 
-            log.debug('All clusters appear to be part of a multi-disc set. Combining.')
-            log.debug(albumName + ' by: ' + ''.join(albumArtist))
+            # if not albumName or not albumArtist:
+                # log.info('Both album name and album artist are required for combining discs.')
+
+            log.info('All clusters appear to be part of the same multi-disc set. Combining.')
+            #log.debug(albumName + ' by: ' + ''.join(albumArtist) + ' date: ' + str(albumDate))
             totalClusters = len(objs)
             log.debug('There are %i clusters' % totalClusters)
             currdisc = 1
@@ -614,16 +626,13 @@ class CombineDiscs(BaseAction):
                     #group 1 is the album title (needs to be stripped)
                     #group 2 is the disc #
                     log.debug('Processing ' + cluster.metadata['album'])
-                    log.debug(cluster)
                     result = DISC_RE.match(cluster.metadata['album'])
                     if result:
                         log.debug('Have result ' + result.group(1) + ' - ' + result.group(2))
                         
-                    #log.debug(result.group(2) + ' - %i' % currdisc)
-                    #log.debug(type(result.group(2)))
                     foundDisc = int(result.group(2))
                     if foundDisc == currdisc:
-                        log.debug('Found disc %i in album' % currdisc)
+                        log.debug('Found disc %i in album name' % currdisc)
                         matchingCluster = cluster
                         break
                 
@@ -640,28 +649,27 @@ class CombineDiscs(BaseAction):
                             break
                 
                 if matchingCluster:
-                    #pass
-                    #found the disc. Set its title, and albumartist of the cluster
-                    #matchingCluster.metadata['album'] = albumName
-                    #matchingCluster.metadata['albumartist'] = albumArtist
-                    #matchingCluster.update()
-                    
                     if currdisc == 1:
-                        albumArtist = matchingCluster.metadata['albumartist']
-                        
+                        if 'albumartist' in matchingCluster.metadata:
+                            albumArtist = matchingCluster.metadata['albumartist']
+                        elif 'album artist' in matchingCluster.metadata:
+                            albumArtist = matchingCluster.metadata['album artist']
+                    
                     # #set title, albumartist, disc number, and total disc tags on all tracks
+                    log.info('Setting album values for album')
                     for i, f in enumerate(matchingCluster.files):
-                        if i == 0 and currdisc == 1:
-                            albumdate = f.metadata['date']
+                        if i == 0 and currdisc == 1:                            
+                            if 'date' in f.metadata:
+                                albumDate = str(f.metadata['date'])
+                                log.debug('Assigned date: ' + str(albumDate))
+                            else:
+                                log.debug('No date found')
                         f.metadata['album'] = albumName
                         f.metadata['albumartist'] = albumArtist
+                        f.metadata['album artist'] = albumArtist
                         f.metadata['discnumber'] = currdisc
                         f.metadata['totaldiscs'] = totalClusters
-                        f.metadata['date'] = albumdate
-                        
-                # else:
-                    # log.debug('Disc %i not found. Aborting' % currdisc)
-                    # return
+                        f.metadata['date'] = str(albumDate)
                     
                 currdisc = currdisc + 1
         except Exception as e:
