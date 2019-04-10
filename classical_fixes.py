@@ -74,6 +74,8 @@ import types
 import re
 import os
 import unicodedata
+import difflib
+from difflib import SequenceMatcher
 
 SUB_GENRES = ['Opera', 'Operetta', 'Symphonic', 'Chamber', 'Choral', 'Vocal', 'Sacred', 'Concerto', 'Sonata', 'Oratorio']
 
@@ -113,6 +115,10 @@ class ArtistLookup():
         self.primaryrole = role.strip()
         self.primaryepoque = epoque.strip()
 
+def AreSimilar(str1, str2):
+    similarity = SequenceMatcher(None, str1, str2).ratio()
+    log.debug(str1 + ' and ' + str2 + ' have similarity of ' + str(similarity))
+    return similarity > .85
 
 def getLastName(inputString):
     parts = inputString.split()
@@ -396,6 +402,15 @@ def fixFile(f):
                 if foundConductor.primaryrole == 'Conductor':
                     f.metadata['conductor'] = foundConductor.name
 
+        log.debug('Looking up orchestra')
+        if 'orchestra' in f.metadata and f.metadata['orchestra'] != '':
+            log.debug('There is an orchestra')
+            orchKey = makeKey(f.metadata['orchestra'])
+            if orchKey in artistLookup:
+                foundOrchestra = artistLookup[orchKey]
+                if foundOrchestra.primaryrole == 'Orchestra':
+                    f.metadata['orchestra'] = foundOrchestra.name                    
+
                 
         #if there is no orchestra, but there is an artist tag that contains a name that looks like an orchestra, use that
         if 'orchestra' not in f.metadata:
@@ -406,20 +421,25 @@ def fixFile(f):
                     break
 
         #if there is a conductor AND and orchestra tag, and either are in the album artist tag, rearrange
-        log.debug('checking for conductor and orchestra in album artists')
+        log.debug('checking for conductor and orchestra in album artists.')
         if 'conductor' in f.metadata and 'orchestra' in f.metadata:
-            log.debug('There is a conductor and orchestra tag')
-            foundConductor = False
-            foundOrchestra = False
+            log.debug('albumartist: ' + '; '.join(trackAlbumArtists))
+            log.debug('conductor: ' + f.metadata['conductor'])
+            log.debug('orchestra: ' + f.metadata['orchestra'])
+
+            foundConductor = ''
+            foundOrchestra = ''
             #log.debug('Track artists count: ' + len(trackAlbumArtists))
             for artist in trackAlbumArtists:
-                log.debug('Processing album artist: ' + artist + ' - conductor is: ' + f.metadata['conductor'])
-                if artist.lower() == f.metadata['conductor'].lower():
+                log.debug('Processing album artist: ' + artist)
+                if AreSimilar(artist.lower(), f.metadata['conductor'].lower()):
                     log.debug('Found Conductor in album artist')
-                    foundConductor=True
-                if artist.lower() == f.metadata['orchestra'].lower():
+                    foundConductor=artist
+                    continue
+                if AreSimilar(artist.lower(), f.metadata['orchestra'].lower()):
                     log.debug('Found orchestra in album artist')
-                    foundOrchestra=True
+                    foundOrchestra=artist
+                    continue
             if foundConductor or foundOrchestra:            
                 newAlbumArtistTag = []
                 if foundConductor:
@@ -427,7 +447,7 @@ def fixFile(f):
                 if foundOrchestra:
                     newAlbumArtistTag.append(f.metadata['orchestra'])
                 for artist in trackAlbumArtists:
-                    if artist.lower() != f.metadata['conductor'].lower() and artist.lower() != f.metadata['orchestra'].lower():
+                    if artist.lower() != foundOrchestra.lower() and artist.lower() != foundConductor.lower():
                         newAlbumArtistTag.append(artist)
                     tagValue = '; '.join(str(a) for a in newAlbumArtistTag )
                 log.debug('Setting album artist to: ' + tagValue )
@@ -440,17 +460,17 @@ def fixFile(f):
         log.debug('checking for conductor and orchestra in album artists')
         if 'conductor' in f.metadata and 'orchestra' in f.metadata:
             log.debug('There is a conductor and orchestra tag')
-            foundConductor = False
-            foundOrchestra = False
+            foundConductor = ''
+            foundOrchestra = ''
             #log.debug('Track artists count: ' + len(trackAlbumArtists))
             for artist in trackArtists:
                 log.debug('Processing artist: ' + artist + ' - conductor is: ' + f.metadata['conductor'])
-                if artist.lower() == f.metadata['conductor'].lower():
+                if AreSimilar(artist.lower(), f.metadata['conductor'].lower()):
                     log.debug('Found Conductor in artist')
-                    foundConductor=True
-                if artist.lower() == f.metadata['orchestra'].lower():
+                    foundConductor=artist
+                if AreSimilar(artist.lower(), f.metadata['orchestra'].lower()):
                     log.debug('Found orchestra in artist')
-                    foundOrchestra=True
+                    foundOrchestra=artist
             if foundConductor or foundOrchestra:            
                 newArtistTag = []
                 if foundConductor:
@@ -458,7 +478,7 @@ def fixFile(f):
                 if foundOrchestra:
                     newArtistTag.append(f.metadata['orchestra'])
                 for artist in trackArtists:
-                    if artist.lower() != f.metadata['conductor'].lower() and artist.lower() != f.metadata['orchestra'].lower():
+                    if artist.lower() != foundConductor.lower() and artist.lower() != foundOrchestra.lower():
                         newArtistTag.append(artist)
                 log.debug('Setting artist to: ' + str(newArtistTag))
                 if f.metadata['artist'] != newArtistTag:
@@ -540,19 +560,74 @@ def fixFile(f):
         log.error('An error occured fixing the file: ' + str(e))
 
 
-
+def ProcessListOfFiles(objs):
+    #If all of the track album titles and album artists are the same before hand, they should all be the same after
+    
+    #Cache the before picture
+    albumName = ''
+    albumArtists = ''
+    albumsAllSame = True
+    albumArtistsAllSame = True
+    for track in objs:
+        if not track or not track.metadata:
+            log.debug('No file/metadata/title for file')
+            continue                
+        if not albumName:
+            albumName = track.metadata['album']
+        if not albumArtists:
+            albumArtists = track.metadata['albumartist']
+        if track.metadata['album'] != albumName:
+            albumsAllSame = False
+            log.debug('Not all original album names the same')
+        if track.metadata['albumartist'] != albumArtists:
+            albumArtistsAllSame = False
+            log.debug('Not all original album artists the same')
+    
+    #Do the processing
+    for track in objs:    
+        if not track or not track.metadata:
+            log.debug('No file/metadata/title for file')
+            continue                
+                        
+        fixFile(track)
+        track.update()
+        
+    #Check to see if rollback is needed.
+    
+    newalbumName = ''
+    newalbumArtists = ''
+    newalbumsAllSame = True
+    newalbumArtistsAllSame = True
+    for track in objs:
+        if not track or not track.metadata:
+            log.debug('No file/metadata/title for file')
+            continue                
+        if not newalbumName:
+            newalbumName = track.metadata['album']
+        if not newalbumArtists:
+            newalbumArtists = track.metadata['albumartist']
+        if track.metadata['album'] != newalbumName:
+            newalbumsAllSame = False
+            log.debug('Not all new album names the same')
+        if track.metadata['albumartist'] != newalbumArtists:
+            newalbumArtistsAllSame = False
+            log.debug('Not all new album artists the same')
+                    
+    for track in objs:
+        if albumArtistsAllSame and not newalbumArtistsAllSame:
+            #rollback albumartists
+            log.debug('Rolling back album artists.')
+            track.metadata['albumartist'] = albumArtists
+            track.metadata['album artist'] = albumArtists
+        if albumsAllSame and not newalbumsAllSame:
+            log.debug('Rolling back album name')
+            track.metadata['album'] = albumName
+    
     
 class FixFileAction(BaseAction):
     NAME = 'Do classical fixes on selected files'
     def callback(self, objs):
-        for track in objs:
-        
-            if not track or not track.metadata:
-                log.debug('No file/metadata/title for file')
-                continue                
-                            
-            fixFile(track)
-            track.update()
+        ProcessListOfFiles(objs)
 
 class FixClusterAction(BaseAction):
     NAME = 'Do classical fixes on selected clusters'
@@ -566,14 +641,15 @@ class FixClusterAction(BaseAction):
             for cluster in objs:
                 if not isinstance(cluster, Cluster) or not cluster.files:
                     continue
+                
+                ProcessListOfFiles(cluster.files)
+                # for i, f in enumerate(cluster.files):
 
-                for i, f in enumerate(cluster.files):
-
-                    if not f or not f.metadata:
-                        log.debug('No file/metadata/title for [%i]' % (i))
-                        continue                
+                    # if not f or not f.metadata:
+                        # log.debug('No file/metadata/title for [%i]' % (i))
+                        # continue                
                     
-                    fixFile(f)
+                    # fixFile(f)
                 cluster.update()
                 
         except Exception as e:
