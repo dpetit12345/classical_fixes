@@ -385,6 +385,17 @@ def fixFile(f):
                     log.debug('Composer not found in lookup. Fabricating composer view tag.')
                     f.metadata['composer view'] = reverseName(f.metadata['composer'])
                     f.metadata['composersort'] = f.metadata['composer view']
+
+        #if there is a conductor, normalize against lookup if found
+        log.debug('Looking up conductor')
+        if 'conductor' in f.metadata and f.metadata['conductor'] != '':
+            log.debug('There is a conductor')
+            conductorKey = makeKey(f.metadata['conductor'])
+            if conductorKey in artistLookup:
+                foundConductor = artistLookup[conductorKey]
+                if foundConductor.primaryrole == 'Conductor':
+                    f.metadata['conductor'] = foundConductor.name
+
                 
         #if there is no orchestra, but there is an artist tag that contains a name that looks like an orchestra, use that
         if 'orchestra' not in f.metadata:
@@ -403,10 +414,10 @@ def fixFile(f):
             #log.debug('Track artists count: ' + len(trackAlbumArtists))
             for artist in trackAlbumArtists:
                 log.debug('Processing album artist: ' + artist + ' - conductor is: ' + f.metadata['conductor'])
-                if artist == f.metadata['conductor']:
+                if artist.lower() == f.metadata['conductor'].lower():
                     log.debug('Found Conductor in album artist')
                     foundConductor=True
-                if artist == f.metadata['orchestra']:
+                if artist.lower() == f.metadata['orchestra'].lower():
                     log.debug('Found orchestra in album artist')
                     foundOrchestra=True
             if foundConductor or foundOrchestra:            
@@ -416,7 +427,7 @@ def fixFile(f):
                 if foundOrchestra:
                     newAlbumArtistTag.append(f.metadata['orchestra'])
                 for artist in trackAlbumArtists:
-                    if artist != f.metadata['conductor'] and artist!=f.metadata['orchestra']:
+                    if artist.lower() != f.metadata['conductor'].lower() and artist.lower() != f.metadata['orchestra'].lower():
                         newAlbumArtistTag.append(artist)
                     tagValue = '; '.join(str(a) for a in newAlbumArtistTag )
                 log.debug('Setting album artist to: ' + tagValue )
@@ -434,10 +445,10 @@ def fixFile(f):
             #log.debug('Track artists count: ' + len(trackAlbumArtists))
             for artist in trackArtists:
                 log.debug('Processing artist: ' + artist + ' - conductor is: ' + f.metadata['conductor'])
-                if artist == f.metadata['conductor']:
+                if artist.lower() == f.metadata['conductor'].lower():
                     log.debug('Found Conductor in artist')
                     foundConductor=True
-                if artist == f.metadata['orchestra']:
+                if artist.lower() == f.metadata['orchestra'].lower():
                     log.debug('Found orchestra in artist')
                     foundOrchestra=True
             if foundConductor or foundOrchestra:            
@@ -447,7 +458,7 @@ def fixFile(f):
                 if foundOrchestra:
                     newArtistTag.append(f.metadata['orchestra'])
                 for artist in trackArtists:
-                    if artist != f.metadata['conductor'] and artist!=f.metadata['orchestra']:
+                    if artist.lower() != f.metadata['conductor'].lower() and artist.lower() != f.metadata['orchestra'].lower():
                         newArtistTag.append(artist)
                 log.debug('Setting artist to: ' + str(newArtistTag))
                 if f.metadata['artist'] != newArtistTag:
@@ -464,7 +475,7 @@ def fixFile(f):
             newArtists = []
             newAlbumArtistTag = []
             for artist in trackArtists:
-                if artist.strip() != f.metadata['composer'].strip():
+                if artist.strip().lower() != f.metadata['composer'].strip().lower():
                     newArtists.append(artist.strip())
                 else:
                     log.debug('Found composer in artist tag. Removing.')
@@ -473,7 +484,7 @@ def fixFile(f):
                     f.metadata['artist'] = newArtists
                     
             for albumArtist in trackAlbumArtists:
-                if albumArtist.strip() != f.metadata['composer'].strip():
+                if albumArtist.strip().lower() != f.metadata['composer'].strip().lower():
                     newAlbumArtistTag.append(albumArtist.strip())
             if newAlbumArtistTag:
                 f.metadata['albumartist'] = '; '.join(str(a) for a in newAlbumArtistTag)
