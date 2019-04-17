@@ -77,7 +77,7 @@ import unicodedata
 import difflib
 from difflib import SequenceMatcher
 
-SUB_GENRES = ['Opera', 'Operetta', 'Symphonic', 'Chamber', 'Choral', 'Vocal', 'Sacred', 'Concerto', 'Sonata', 'Oratorio']
+SUB_GENRES = ['opera', 'operetta', 'orchestral', 'symphonic', 'chamber', 'choral', 'vocal', 'sacred', 'concerto', 'sonata', 'oratorio']
 
 ORCH_RE = re.compile('[Oo]rchestr|[Oo]rkest|[Pp]hilharmoni|[Cc]onsort|[Ee]nsemb|[Ss]infonia|[Ss]ymphon|[Bb]and')
 
@@ -549,7 +549,7 @@ def fixFile(f):
         #move genre tag to "OrigGenre" and replace with Classical
         if 'genre' in f.metadata:
             if f.metadata['genre'] != 'Classical':
-                if f.metadata['genre'] in SUB_GENRES:
+                if f.metadata['genre'].lower() in SUB_GENRES:
                     f.metadata['origgenre'] = f.metadata['genre']
                     f.metadata['genre'] = 'Classical'
         else:
