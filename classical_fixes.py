@@ -94,10 +94,17 @@ def makeKey(inputstring):
     
 def reverseName(inputString):
     nameOut = inputString.strip()
-    lastSpace = nameOut.rfind(' ')
-    if lastSpace == -1:
-        return nameOut
-    return nameOut[lastSpace+1:100] + ', ' + nameOut[0:lastSpace]
+    nameParts = nameOut.split(' ')
+    if len(nameParts) > 1:
+        
+        if nameParts[-1].lower() in  ['jr', 'sr', 'jr.', 'sr.', 'i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi']:
+            #name part [-2] + ", ' + namePArts until -2 + np -1
+            if len(nameParts) > 2:
+                nameOut = nameParts[-2] + ', ' + ' '.join(str(s) for s in [nameParts[i] for i in range(len(nameParts)) if i < len(nameParts)-2]) + ' ' + nameParts[-1]
+        else:
+            nameOut = nameParts[-1] + ', ' + ' '.join(str(s) for s in [nameParts[i] for i in range(len(nameParts)) if i < len(nameParts)-1])
+
+    return nameOut  
        
 class ArtistLookup():
     key=''
@@ -117,28 +124,47 @@ class ArtistLookup():
 
 def AreSimilar(str1, str2):
     similarity = SequenceMatcher(None, str1, str2).ratio()
-    log.debug(str1 + ' and ' + str2 + ' have similarity of ' + str(similarity))
+    #log.debug(str1 + ' and ' + str2 + ' have similarity of ' + str(similarity))
     return similarity > .85
 
 def getLastName(inputString):
-    parts = inputString.split()
-    if len(parts) > 0:
-        return parts[-1]
+    return reverseName(inputString).split()[0]
+    
+def getInitialsName(inputString):
+    log.debug('getInitialsName - ' + inputString)
+    nameOut = inputString.strip()
+    nameParts = nameOut.split(' ')
+    if len(nameParts) > 1:
+        
+        if nameParts[-1].lower() in  ['jr', 'sr', 'jr.', 'sr.', 'i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi']:
+            #name part [-2] + ", ' + namePArts until -2 + np -1
+            if len(nameParts) > 2:
+                nameOut = ''.join(str(s)[0] for s in [nameParts[i] for i in range(len(nameParts)) if i < len(nameParts)-2]) + nameParts[-2] + nameParts[-1]
+        else:
+            nameOut = ''.join(str(s)[0] for s in [nameParts[i] for i in range(len(nameParts)) if i < len(nameParts)-1]) + nameParts[-1] 
     else:
-        return ''
+        nameOut = nameOut[0]
+    return nameOut     
 
 def upsertArtist(artistDict, name, sortOrderName, sortOrderNameWithDates, primaryRole, epoque):
     log.debug('Upserting artist: ' + name)
     key = makeKey(name)
     
     artistDict[key] = ArtistLookup(key, name, sortOrderName, sortOrderNameWithDates, primaryRole, epoque)
-    log.info('Added ' + name + ' to lookup.')
+    log.info('Added ' + key + ' to lookup.')
     if primaryRole != 'Orchestra':
         key = makeKey(getLastName(name))
         
-        if key not in artistDict or (key in artistDict and artistDict[key].name == name):
-            log.debug('Adding key for last name too')
+        if key not in artistDict or (key in artistDict and AreSimilar( artistDict[key].name, name)):           
             artistDict[key] = ArtistLookup(key, name, sortOrderName, sortOrderNameWithDates, primaryRole, epoque)
+            log.info('Added ' + key + ' to lookup.')
+        
+        key = makeKey(getInitialsName(name))
+        if key not in artistDict or (key in artistDict and AreSimilar( artistDict[key].name, name)):            
+            artistDict[key] = ArtistLookup(key, name, sortOrderName, sortOrderNameWithDates, primaryRole, epoque)
+            log.info('Added ' + key + ' to lookup.')
+        
+    log.debug('Completed upserting artist: ' + name)
     return
         
 def readArtists():
@@ -519,6 +545,11 @@ def fixFile(f):
             log.debug('No artist tag found, but there is an album artist. Using album artist.')
             f.metadata['artist'] = f.metadata['albumartist'].split('; ')
             
+        if 'albumartist' not in f.metadata and 'artist' in f.metadata:
+            log.debug('No album artist tag found, but there is an artist. Using artist.')
+            f.metadata['albumartist'] = '; '.join( f.metadata['artist'])
+
+
         f.metadata['album artist'] = f.metadata['albumartist']
 
 
