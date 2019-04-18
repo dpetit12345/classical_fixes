@@ -20,44 +20,31 @@
 PLUGIN_NAME = 'Classical Fixes'
 PLUGIN_AUTHOR = 'Dan Petit'
 PLUGIN_DESCRIPTION = '''
-Adds 3 plugin menus to the clustering pane. The first fixes common tagging inconsistencies with classical music (see below). The second combines discs in a multi-disc set into 1 disc. The third adds an artist from a file to the lookup cache.
-
+This plugin helps solve numerous taggings issues common in classical music. It adds several plugin menus to the clustering pane at the cluster and file levels.
 <ol>
-  <li>
-    Change work "No." in track title and album titles to use # instead. Common variations covered.
-  </li>
-  <li>
-    Change Opus to Op.
-</li>
-<li>    
-    When no conductor assigned, assign conductor based on common list of conductors, extracting data from artists or album artists.
-</li>
-<li>    
-    When no orchestra assigned, assign orchestra based on a common list of orchestras, extracting data from artists or album artists.
-</li>
-<li>    
-    Correct artist names against common misspellings
-</li>
-<li>    
-    Add dates tag for primary composer and composer view tag
-</li>
-<li>    
-    Standardize taxonomy by setting the epoque by primary epoque of the composer.
-</li>
-<li>    
-    Normalize Album artist order by comductor, orchestra, rest or orignal album artists
-</li>
-  
+    <li>
+        Combine discs into a single album - this is useful for turning multi-disc sets that would normally span more than one album into a single album. After some validations to check that the selections belong to the same album, this makes all album names the same (stripping of "Disc 1," "Disc 2," etc.) and makes the album artist the same.
+    </li>
 
-</ol>
-
-How to use:
-<ol>
-  <li>Cluster a group of files</li>
-  <li>Right click on the cluster(s)</li>
-  <li>Then click => Do Classical Fixes</li>
-  <li>or click => Combine discs into single album</li>
-
+    <li>Do classical fixes on selected clusters - This performs numerous tag cleanup actions, using a local artist lookup table to embedded additional information:
+        <ol>
+            <li>Change work "No." in track title and album titles to use # instead. Common variations covered.</li>
+            <li>Change Opus to Op.</li>
+            <li>When no conductor is assigned, assign conductor based on a common list of conductors, extracting data from artists or album artists.</li>
+            <li>When no orchestra is assigned, assign orchestra based on a common list of orchestras, extracting data from artists or album artists.</li>
+            <li>Correct artist names against common misspellings.</li>
+            <li>Add dates tag for primary composer and composer view tag.</li>
+            <li>Standardize taxonomy by setting the epoque by primary epoque of the composer.</li>
+            <li>Normalize Album artist order by conductor, orchestra, followed by the rest of the original album artists.</li>
+            <li>Adds "Album Artist" tag to match "AlbumArtist" tag.</li>
+        </ol>
+    <li>
+    <li>Renumber tracks in albums sequentially - renumbers tracks in a multi-disc set so that it becomes one large single disc album. Original track and disc numbers are preserved in other tags.
+    <li>Do classical fixes on selected files - same as cluster version, only works at the individual file level</li>
+    <li>Renumber tracks sequentially by album - same as above, at the file level</li>
+    <li>Add Composer to Lookup - stores or updates the composer information in the lookup table. Composer View and Epoque tags must all be filled before the record can be updated.</li>
+    <li>Add Conductor to Lookup - stores or updates the conductor information in the lookup table.</li>
+    <li>Add Orchestra to Lookup - stores or updates the orchestra information in the lookup table.</li>
 </ol>
 
 '''
@@ -223,6 +210,29 @@ def expandList(thelist):
         return outlist
     except Exception as e:
         log.error('Error expanding list: ' + str(e))
+
+def track_key(track):
+    return str(track.metadata['album']) + str(track.metadata['discnumber']).zfill(3) + str(track.metadata['tracknumber']).zfill(3)
+
+def RenumberFiles(files):
+    currAlbum = ''
+    currTrack = 1
+    log.debug('Processinging track numbers for ' + str(len(files)) + ' files.')
+    for file in files:
+        if file.metadata['album'] != currAlbum:
+            currTrack = 1
+            currAlbum = file.metadata['album']
+        if file.metadata['discnumber'] != '1':
+            file.metadata['origdiscnumber'] = file.metadata['discnumber']
+        if file.metadata['tracknumber'] != str(currTrack):
+            file.metadata['origtracknumber'] = file.metadata['tracknumber']
+        file.metadata['discnumber'] = 1
+        file.metadata['tracknumber'] = currTrack
+        currTrack += 1
+        
+        file.update()
+
+
     
 artistLookup = readArtists()
 regexes = [
@@ -248,6 +258,17 @@ regexes = [
     ['\\s{2,}',' ']
 ]
 
+class NumberTracksInAlbumFileAction(BaseAction):
+    NAME = 'Renumber tracks sequentially by album'
+
+    def callback(self, objs):
+        
+        try:
+            log.debug('NumberTracksInAlbumFileAction called.')
+            tracks = sorted(objs, key=track_key)
+            RenumberFiles(tracks)
+        except Exception as e:
+            log.error('Errorin NumberTracksInAlbumFileAction: ' + str(e))
 
 class ComposerFileAction(BaseAction):
     NAME = 'Add composer to lookup'
@@ -660,6 +681,34 @@ class FixFileAction(BaseAction):
     def callback(self, objs):
         ProcessListOfFiles(objs)
 
+
+class NumberTracksInAlbumClusterAction(BaseAction):
+    NAME = 'Renumber tracks in albums sequentially'
+
+    def callback(self, objs):
+        try:
+            log.debug('Processinging track numbers for selected clusters')
+            allFiles = []
+            for cluster in objs:
+                if not isinstance(cluster, Cluster) or not cluster.files:
+                    continue
+                allFiles += cluster.files
+                
+            #log.debug('Total files to process: ' + str(len(allFiles)))
+            #log.debug('Unsorted:')
+            #for file in allFiles:
+            #    log.debug(track_key(file))
+            allFiles = sorted(allFiles, key=track_key)
+            #log.debug('Sorted:')
+            #for file in allFiles:
+            #    log.debug(track_key(file))
+            RenumberFiles(allFiles)           
+            for cluster in objs:
+                cluster.update()
+        except Exception as e:
+            log.error('An error has occurred in NumberTracksInAlbumClusterAction: ' + str(e))
+        
+
 class FixClusterAction(BaseAction):
     NAME = 'Do classical fixes on selected clusters'
 
@@ -684,7 +733,7 @@ class FixClusterAction(BaseAction):
                 cluster.update()
                 
         except Exception as e:
-            log.error('An error has occurred: ' + str(e))
+            log.error('An error has occurred in FixClusterAction: ' + str(e))
 
 DISC_RE = re.compile('(.*)[Dd][Ii][Ss][CcKk][ ]*([0-9]*)')
 
@@ -795,8 +844,10 @@ class CombineDiscs(BaseAction):
 
 register_cluster_action(CombineDiscs())
 register_cluster_action(FixClusterAction())
+register_cluster_action(NumberTracksInAlbumClusterAction())
 
 register_file_action(FixFileAction())
+register_file_action(NumberTracksInAlbumFileAction())
 
 register_file_action(ComposerFileAction())
 register_file_action(ConductorFileAction())
