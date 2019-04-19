@@ -20,7 +20,7 @@
 PLUGIN_NAME = 'Classical Fixes'
 PLUGIN_AUTHOR = 'Dan Petit'
 PLUGIN_DESCRIPTION = '''
-This plugin helps solve numerous taggings issues common in classical music. It adds several plugin menus to the clustering pane at the cluster and file levels.
+This plugin helps solve numerous taggings issues common in classical music. It adds several plugin menus to the clustering pane at the cluster and file levels. It does not rely on musicbrainz data.
 <ol>
     <li>
         Combine discs into a single album - this is useful for turning multi-disc sets that would normally span more than one album into a single album. After some validations to check that the selections belong to the same album, this makes all album names the same (stripping of "Disc 1," "Disc 2," etc.) and makes the album artist the same.
@@ -30,13 +30,19 @@ This plugin helps solve numerous taggings issues common in classical music. It a
         <ol>
             <li>Change work "No." in track title and album titles to use # instead. Common variations covered.</li>
             <li>Change Opus to Op.</li>
+            <li>Performs several album title cleanup procedures.</li>
+            <li>When no composer is assigned, assign composer based on a common list of composers, extracting data from artists or album artists.</li>
             <li>When no conductor is assigned, assign conductor based on a common list of conductors, extracting data from artists or album artists.</li>
             <li>When no orchestra is assigned, assign orchestra based on a common list of orchestras, extracting data from artists or album artists.</li>
             <li>Correct artist names against common misspellings.</li>
-            <li>Add dates tag for primary composer and composer view tag.</li>
-            <li>Standardize taxonomy by setting the epoque by primary epoque of the composer.</li>
+            <li>Add composer sort tag, which is composer name sorted, LastName, FirstName.</li>
+            <li>Add composer view tag, which is composer name sorted, plus composers dates.</li>
+            <li>Standardize taxonomy by setting the epoque to primary epoque of the composer.</li>
             <li>Normalize Album artist order by conductor, orchestra, followed by the rest of the original album artists.</li>
             <li>Adds "Album Artist" tag to match "AlbumArtist" tag.</li>
+            <li>If there is no orchestra, but there is a artist of album artist name that looks like an orchestra, use that.</li>
+            <li>Remove composer from album artist and artist tags.</li>
+            <li>Remove "[conductorname]" from album titles.</li>
         </ol>
     <li>
     <li>Renumber tracks in albums sequentially - renumbers tracks in a multi-disc set so that it becomes one large single disc album. Original track and disc numbers are preserved in other tags.
@@ -212,16 +218,18 @@ def expandList(thelist):
         log.error('Error expanding list: ' + str(e))
 
 def track_key(track):
-    return str(track.metadata['album']) + str(track.metadata['discnumber']).zfill(3) + str(track.metadata['tracknumber']).zfill(3)
+    return str(track.metadata['albumartist']) + str(track.metadata['album']) + str(track.metadata['discnumber']).zfill(3) + str(track.metadata['tracknumber']).zfill(3)
 
 def RenumberFiles(files):
     currAlbum = ''
+    currAlbumArtist = ''
     currTrack = 1
     log.debug('Processinging track numbers for ' + str(len(files)) + ' files.')
     for file in files:
-        if file.metadata['album'] != currAlbum:
+        if file.metadata['album'] != currAlbum or file.metadata['albumartist'] != currAlbumArtist:
             currTrack = 1
             currAlbum = file.metadata['album']
+            currAlbumArtist = file.metadata['albumartist']
         if file.metadata['discnumber'] != '1':
             file.metadata['origdiscnumber'] = file.metadata['discnumber']
         if file.metadata['tracknumber'] != str(currTrack):
