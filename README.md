@@ -1,6 +1,6 @@
 # classical_fixes
 This Picard plugin helps solve numerous tagging issues common in classical music. It adds several plugin menus to the clustering pane at the cluster and file levels. It does not rely on MusicBrainz data. Rather it uses a local lookup file to normalize existing tags. It can be used before or after applying MusicBrainz data for cleanup purposes.
-##Menus
+## Menus
 The menus are:
 1. Combine discs into a single album - this is useful for turning multi-disc sets (including boxed sets) that would normally span more than one album into a single album. After some validations to check that the selections belong to the same album, this makes all album names the same (stripping of "Disc 1," "Disc 2," etc.) and makes the album artist the same.
 2. Do classical fixes on selected clusters - This performs numerous tag cleanup actions, using a local artist lookup table to embedded additional information:
