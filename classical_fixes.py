@@ -568,7 +568,10 @@ def fixFile(f):
             
         if 'albumartist' not in f.metadata and 'artist' in f.metadata:
             log.debug('No album artist tag found, but there is an artist. Using artist.')
-            f.metadata['albumartist'] = '; '.join( f.metadata['artist'])
+            if isinstance(f.metadata['artist'], str):
+                f.metadata['albumartist'] = f.metadata['artist']
+            else:
+                f.metadata['albumartist'] = '; '.join(str(e) for e in f.metadata['artist'])
 
 
         f.metadata['album artist'] = f.metadata['albumartist']
