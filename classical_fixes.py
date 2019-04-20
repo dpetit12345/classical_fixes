@@ -20,26 +20,34 @@
 PLUGIN_NAME = 'Classical Fixes'
 PLUGIN_AUTHOR = 'Dan Petit'
 PLUGIN_DESCRIPTION = '''
-This plugin helps solve numerous taggings issues common in classical music. It adds several plugin menus to the clustering pane at the cluster and file levels.
+This plugin helps solve numerous taggings issues common in classical music. It adds several plugin menus to the clustering pane at the cluster and file levels. It does not rely on musicbrainz data. Rather it uses a local lookup file to normalize existing tags. It can be used before or after applying MusicBrainz data for cleanup purposes.
+<br>
+The menus are:
 <ol>
     <li>
-        Combine discs into a single album - this is useful for turning multi-disc sets that would normally span more than one album into a single album. After some validations to check that the selections belong to the same album, this makes all album names the same (stripping of "Disc 1," "Disc 2," etc.) and makes the album artist the same.
+        Combine discs into a single album - this is useful for turning multi-disc sets (including boxed sets) that would normally span more than one album into a single album. After some validations to check that the selections belong to the same album, this makes all album names the same (stripping of "Disc 1," "Disc 2," etc.) and makes the album artist the same.
     </li>
 
     <li>Do classical fixes on selected clusters - This performs numerous tag cleanup actions, using a local artist lookup table to embedded additional information:
         <ol>
-            <li>Change work "No." in track title and album titles to use # instead. Common variations covered.</li>
+            <li>Change word "No." in track title and album titles to use # instead. Common variations covered.</li>
             <li>Change Opus to Op.</li>
+            <li>Performs several album title cleanup procedures.</li>
+            <li>When no composer is assigned, assign composer based on a common list of composers, extracting data from artists or album artists.</li>
             <li>When no conductor is assigned, assign conductor based on a common list of conductors, extracting data from artists or album artists.</li>
             <li>When no orchestra is assigned, assign orchestra based on a common list of orchestras, extracting data from artists or album artists.</li>
             <li>Correct artist names against common misspellings.</li>
-            <li>Add dates tag for primary composer and composer view tag.</li>
-            <li>Standardize taxonomy by setting the epoque by primary epoque of the composer.</li>
+            <li>Add composer sort tag, which is composer name sorted, LastName, FirstName.</li>
+            <li>Add composer view tag, which is composer name sorted, plus composers dates.</li>
+            <li>Standardize taxonomy by setting the epoque to primary epoque of the composer.</li>
             <li>Normalize Album artist order by conductor, orchestra, followed by the rest of the original album artists.</li>
             <li>Adds "Album Artist" tag to match "AlbumArtist" tag.</li>
+            <li>If there is no orchestra, but there is a artist of album artist name that looks like an orchestra, use that.</li>
+            <li>Remove composer from album artist and artist tags.</li>
+            <li>Remove "[conductorname]" from album titles.</li>
         </ol>
     <li>
-    <li>Renumber tracks in albums sequentially - renumbers tracks in a multi-disc set so that it becomes one large single disc album. Original track and disc numbers are preserved in other tags.
+    <li>Renumber tracks in albums sequentially - renumbers tracks in a multi-disc set so that it becomes one large single disc album. Original track and disc numbers are preserved in other tags. 
     <li>Do classical fixes on selected files - same as cluster version, only works at the individual file level</li>
     <li>Renumber tracks sequentially by album - same as above, at the file level</li>
     <li>Add Composer to Lookup - stores or updates the composer information in the lookup table. Composer View and Epoque tags must all be filled before the record can be updated.</li>
@@ -63,11 +71,38 @@ import os
 import unicodedata
 import difflib
 from difflib import SequenceMatcher
+from datetime import datetime
 
 SUB_GENRES = ['opera', 'operetta', 'orchestral', 'symphonic', 'chamber', 'choral', 'vocal', 'sacred', 'concerto', 'sonata', 'oratorio']
-
 ORCH_RE = re.compile('[Oo]rchestr|[Oo]rkest|[Pp]hilharmoni|[Cc]onsort|[Ee]nsemb|[Ss]infonia|[Ss]ymphon|[Bb]and')
+regexes = [
+    ['\\b[Nn][Uu][Mm][Bb][Ee][Rr][ ]*([0-9])','#\\1'],  #Replace "Number 93" with #93
+    ['\\b[Nn][Oo][.]?[ ]*([0-9])','#\\1'], #No. 99 -> #99
+    ['\\b[Nn][Rr][.]?[ ]*([0-9])','#\\1'], #Nr. 99 -> #99
+    ['\\b[Nn][Bb][Rr][.]?\\s([0-9])', '#\\1'], #Nbr. 99 -> #99
+    ['\\b[Oo][Pp][Uu][Ss][ ]*([0-9])','Op. \\1'], #Opus 99 -> Op. 99
+    ['\\b[Oo][Pp][.]?[ ]*([0-9])','Op. \\1'], #OP.   99 -> Op. 99
+    ['\\b[Ss][Yy][Mm][ |.][ ]*([0-9])','Symphony \\1'], #Sym. -> Symphony
+    ['\\b[Ss][Yy][Mm][Pp][Hh][Oo][Nn][Ii][Ee][ ]*[#]?([0-9])','Symphony #\\1'],  #Symphonie -> symphony
+    ['\\b[Mm][Ii][Nn][.]','min.'], #Major (and variants) -> Maj.  Minor (and variants) -> min.
+    ['\\b[Mm][Aa][Jj][.]','Maj.'],
+    ['\\b[Mm][Ii][Nn][Ee][Uu][Rr]\\b','min.'],
+    ['\\b[Mm][Aa][Jj][Ee][Uu][Rr]\\b', 'Maj.'],
+    ['\\b[Mm][Aa][Jj][Ee][Uu][Rr]\\b', 'Maj.'],
+    ['\\b[Bb][. ]*[Ww][. ]*[Vv][. #]*([0-9])', 'BWV \\1'], #fix catalogue assignments
+    ['\\b[Hh][. ]*[Ww][. ]*[Vv][. #]*([0-9])', 'HWV \\1'],
+    ['\\b[Hh][ .]?[Oo]?[. ]?[Bb]?[ .]{1,}([XxVvIi]{1,}[Aa]?)', 'Hob. \\1'],
+    ['\\b[Kk][ .]*([0-9])', 'K. \\1'],
+    ['\\b[Aa][Nn][Hh][ .]*([0-9])', 'Anh. \\1'],
+    ['[,]([^ ])', ', \\1'], #Ensure spaces after commas
+    ['\\s{2,}',' '] # remove duplicate spaces
+]
 
+COMMON_SUFFIXES = ['jr', 'sr', 'jr.', 'sr.', 'i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi']
+
+DISC_RE = re.compile('(.*)[Dd][Ii][Ss][CcKk][ ]*([0-9]*)')
+
+#given an input, makes a unique by hashing the value. Replaces non-ascii characters with equivelents (for the most part) and strips punctuation, then coverts to lower case.
 def makeKey(inputstring):
     stripped = ''.join(c for c in unicodedata.normalize('NFD', inputstring)
                   if unicodedata.category(c) != 'Mn')
@@ -78,13 +113,14 @@ def makeKey(inputstring):
     stripped = stripped.replace("'",'')
     stripped = stripped.replace(',','')
     return stripped.lower()
-    
+
+#given a name in FName LName order, reverses the name to LName, FName. Common suffixes are handled.    
 def reverseName(inputString):
     nameOut = inputString.strip()
     nameParts = nameOut.split(' ')
     if len(nameParts) > 1:
         
-        if nameParts[-1].lower() in  ['jr', 'sr', 'jr.', 'sr.', 'i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi']:
+        if nameParts[-1].lower() in COMMON_SUFFIXES:
             #name part [-2] + ", ' + namePArts until -2 + np -1
             if len(nameParts) > 2:
                 nameOut = nameParts[-2] + ', ' + ' '.join(str(s) for s in [nameParts[i] for i in range(len(nameParts)) if i < len(nameParts)-2]) + ' ' + nameParts[-1]
@@ -92,7 +128,8 @@ def reverseName(inputString):
             nameOut = nameParts[-1] + ', ' + ' '.join(str(s) for s in [nameParts[i] for i in range(len(nameParts)) if i < len(nameParts)-1])
 
     return nameOut  
-       
+
+#This class holds an individual record in the lookup table.       
 class ArtistLookup():
     key=''
     name=''  
@@ -109,21 +146,24 @@ class ArtistLookup():
         self.primaryrole = role.strip()
         self.primaryepoque = epoque.strip()
 
+#Return true if the 2 string a close. Useful for detecting common misspellings.
 def AreSimilar(str1, str2):
     similarity = SequenceMatcher(None, str1, str2).ratio()
     #log.debug(str1 + ' and ' + str2 + ' have similarity of ' + str(similarity))
     return similarity > .85
 
+#given a string in FName LName order, returns the last name. Common suffixes are handled.
 def getLastName(inputString):
     return reverseName(inputString).split()[0]
-    
+
+#Given a name in FName LName order, returns a key representing Initials with last name and suffixes. Thus, Johann Sebastian Bach becomes jsbach. Common suffixes handled    
 def getInitialsName(inputString):
-    log.debug('getInitialsName - ' + inputString)
+    log.debug('CLASSICAL FIXES: getInitialsName - ' + inputString)
     nameOut = inputString.strip()
     nameParts = nameOut.split(' ')
     if len(nameParts) > 1:
         
-        if nameParts[-1].lower() in  ['jr', 'sr', 'jr.', 'sr.', 'i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi']:
+        if nameParts[-1].lower() in COMMON_SUFFIXES:
             #name part [-2] + ", ' + namePArts until -2 + np -1
             if len(nameParts) > 2:
                 nameOut = ''.join(str(s)[0] for s in [nameParts[i] for i in range(len(nameParts)) if i < len(nameParts)-2]) + nameParts[-2] + nameParts[-1]
@@ -131,44 +171,46 @@ def getInitialsName(inputString):
             nameOut = ''.join(str(s)[0] for s in [nameParts[i] for i in range(len(nameParts)) if i < len(nameParts)-1]) + nameParts[-1] 
     else:
         nameOut = nameOut[0]
-    return nameOut     
+    return nameOut.lower()     
 
+#inserts or updates and artist in the lookup table
 def upsertArtist(artistDict, name, sortOrderName, sortOrderNameWithDates, primaryRole, epoque):
-    log.debug('Upserting artist: ' + name)
+    log.debug('CLASSICAL FIXES: Upserting artist: ' + name)
     key = makeKey(name)
     
     artistDict[key] = ArtistLookup(key, name, sortOrderName, sortOrderNameWithDates, primaryRole, epoque)
-    log.info('Added ' + key + ' to lookup.')
+    log.info('CLASSICAL FIXES: Added ' + key + ' to lookup.')
     if primaryRole != 'Orchestra':
         key = makeKey(getLastName(name))
         
         if key not in artistDict or (key in artistDict and AreSimilar( artistDict[key].name, name)):           
             artistDict[key] = ArtistLookup(key, name, sortOrderName, sortOrderNameWithDates, primaryRole, epoque)
-            log.info('Added ' + key + ' to lookup.')
+            log.info('CLASSICAL FIXES: Added ' + key + ' to lookup.')
         
         key = makeKey(getInitialsName(name))
         if key not in artistDict or (key in artistDict and AreSimilar( artistDict[key].name, name)):            
             artistDict[key] = ArtistLookup(key, name, sortOrderName, sortOrderNameWithDates, primaryRole, epoque)
-            log.info('Added ' + key + ' to lookup.')
+            log.info('CLASSICAL FIXES: Added ' + key + ' to lookup.')
         
-    log.debug('Completed upserting artist: ' + name)
+    log.debug('CLASSICAL FIXES: Completed upserting artist: ' + name)
     return
-        
+
+#Reads the artist lookup file and returns it as a dictionary of ArtistLookup objects.        
 def readArtists():
     try:
-        log.debug('Script path: ' + os.path.dirname(os.path.abspath(__file__)))
+        log.debug('CLASSICAL FIXES: Script path: ' + os.path.dirname(os.path.abspath(__file__)))
         filepath = os.path.dirname(os.path.abspath(__file__)) + '/artists.csv'
         if os.path.exists(filepath):
-            log.debug('File exists')
+            log.debug('CLASSICAL FIXES: File exists')
             try:
                 with open(filepath, 'r', encoding='utf-8') as artistfile:
                     artistlines = artistfile.readlines()
-                log.debug('File read successfully')
+                log.debug('CLASSICAL FIXES: File read successfully')
             except Exception as e:
-                log.error('Error opening artists file: ' + str(e))
+                log.error('CLASSICAL FIXES: Error opening artists file: ' + str(e))
                 return None
         else:
-            log.error('Sibling file does not exist')
+            log.error('CLASSICAL FIXES: Sibling file does not exist')
             return None
         
         #populate the lookup
@@ -179,12 +221,13 @@ def readArtists():
                 art = ArtistLookup(parts[0],parts[1],parts[2],parts[3],parts[4],parts[5])
                 artistLookup[art.key] = art
         
-        log.info('Successfully read artists file and loaded %i artists.' % len(artistLookup))
+        log.info('CLASSICAL FIXES: Successfully read artists file and loaded %i artists.' % len(artistLookup))
         
         return artistLookup
     except Exception as e:
-        log.error('Error reading artists: ' + str(e))
+        log.error('CLASSICAL FIXES: Error reading artists: ' + str(e))
 
+#Saves the artist lookup file
 def saveArtists(artistDict):
     try:
         filepath = os.path.dirname(os.path.abspath(__file__)) + '/artists.csv'
@@ -193,11 +236,11 @@ def saveArtists(artistDict):
             for key, artist in artistDict.items():
                 line = artist.key + '|' + artist.name + '|' + artist.sortorder + '|' + artist.sortorderwithdates + '|' + artist.primaryrole + '|' + artist.primaryepoque    
                 artistFile.write(line + '\n')
-        log.info('Successfully saved artists lookup file.')
+        log.info('CLASSICAL FIXES: Successfully saved artists lookup file.')
     except Exception as e:
-        log.error('Error occured saving artists: ' + str(e))
+        log.error('CLASSICAL FIXES: Error occured saving artists: ' + str(e))
 
-
+#For tags where multiple values are stored in one semi-colon separated string, expands them into an array.
 def expandList(thelist):
     try:
         outlist = []
@@ -209,19 +252,23 @@ def expandList(thelist):
             outlist += cleaned.split(';')
         return outlist
     except Exception as e:
-        log.error('Error expanding list: ' + str(e))
+        log.error('CLASSICAL FIXES: Error expanding list: ' + str(e))
 
+#makes a sorting key for a track. 
 def track_key(track):
-    return str(track.metadata['album']) + str(track.metadata['discnumber']).zfill(3) + str(track.metadata['tracknumber']).zfill(3)
+    return str(track.metadata['albumartist']) + str(track.metadata['album']) + str(track.metadata['discnumber']).zfill(4) + str(track.metadata['tracknumber']).zfill(7)
 
+#renumbers a list of files by sorting them and then resetting the track every time a new album is found.
 def RenumberFiles(files):
     currAlbum = ''
+    currAlbumArtist = ''
     currTrack = 1
-    log.debug('Processinging track numbers for ' + str(len(files)) + ' files.')
+    log.debug('CLASSICAL FIXES: Processinging track numbers for ' + str(len(files)) + ' files.')
     for file in files:
-        if file.metadata['album'] != currAlbum:
+        if file.metadata['album'] != currAlbum or file.metadata['albumartist'] != currAlbumArtist:
             currTrack = 1
             currAlbum = file.metadata['album']
+            currAlbumArtist = file.metadata['albumartist']
         if file.metadata['discnumber'] != '1':
             file.metadata['origdiscnumber'] = file.metadata['discnumber']
         if file.metadata['tracknumber'] != str(currTrack):
@@ -231,202 +278,91 @@ def RenumberFiles(files):
         currTrack += 1
         
         file.update()
+        
 
 
-    
+
+        
+
+#Read the lookup table into a global variable    
 artistLookup = readArtists()
-regexes = [
-    ['\\b[Nn][Uu][Mm][Bb][Ee][Rr][ ]*([0-9])','#\\1'],  #Replace "Number 93" with #93
-    ['\\b[Nn][Oo][.]?[ ]*([0-9])','#\\1'], #No. 99 -> #99
-    ['\\b[Nn][Rr][.]?[ ]*([0-9])','#\\1'], #Nr. 99 -> #99
-    ['\\b[Nn][Bb][Rr][.]?\\s([0-9])', '#\\1'], #Nbr. 99 -> #99
-    ['\\b[Oo][Pp][Uu][Ss][ ]*([0-9])','Op. \\1'], #Opus 99 -> Op. 99
-    ['\\b[Oo][Pp][.]?[ ]*([0-9])','Op. \\1'], #OP.   99 -> Op. 99
-    ['\\b[Ss][Yy][Mm][ |.][ ]*([0-9])','Symphony \\1'], #Sym. -> Symphony
-    ['\\b[Ss][Yy][Mm][Pp][Hh][Oo][Nn][Ii][Ee][ ]*[#]?([0-9])','Symphony #\\1'],  #Symphonie -> symphony
-    ['\\b[Mm][Ii][Nn][.]','min.'],
-    ['\\b[Mm][Aa][Jj][.]','Maj.'],
-    ['\\b[Mm][Ii][Nn][Ee][Uu][Rr]\\b','min.'],
-    ['\\b[Mm][Aa][Jj][Ee][Uu][Rr]\\b', 'Maj.'],
-    ['\\b[Mm][Aa][Jj][Ee][Uu][Rr]\\b', 'Maj.'],
-    ['\\b[Bb][. ]*[Ww][. ]*[Vv][. #]*([0-9])', 'BWV \\1'],
-    ['\\b[Hh][. ]*[Ww][. ]*[Vv][. #]*([0-9])', 'HWV \\1'],
-    ['\\b[Hh][ .]?[Oo]?[. ]?[Bb]?[ .]{1,}([XxVvIi]{1,}[Aa]?)', 'Hob. \\1'],
-    ['\\b[Kk][ .]*([0-9])', 'K. \\1'],
-    ['\\b[Aa][Nn][Hh][ .]*([0-9])', 'Anh. \\1'],
-    ['[,]([^ ])', ', \\1'],
-    ['\\s{2,}',' ']
-]
 
-class NumberTracksInAlbumFileAction(BaseAction):
-    NAME = 'Renumber tracks sequentially by album'
-
-    def callback(self, objs):
-        
-        try:
-            log.debug('NumberTracksInAlbumFileAction called.')
-            tracks = sorted(objs, key=track_key)
-            RenumberFiles(tracks)
-        except Exception as e:
-            log.error('Errorin NumberTracksInAlbumFileAction: ' + str(e))
-
-class ComposerFileAction(BaseAction):
-    NAME = 'Add composer to lookup'
-
-    def callback(self, objs):
-        
-        try:
-            log.debug('ComposerFileAction called.')
-            
-            global artistLookup
-            
-            for track in objs:
-                if not track or not track.metadata:
-                    log.debug('No track metadata available')
-                    continue
-                
-                if 'composer' not in track.metadata or 'composer view' not in track.metadata or 'epoque' not in track.metadata:
-                    log.info('No composer metadata available')
-                    continue
-                    
-                name = track.metadata['composer']
-                sortOrderWithDates = track.metadata['composer view']
-                parenpos = sortOrderWithDates.find('(')
-                if parenpos == 0:
-                    parenpos = 100
-                sortorder = sortOrderWithDates[:parenpos+1].strip('( ')
-                epoque = track.metadata['epoque']
-                
-                upsertArtist(artistLookup, name, sortorder, sortOrderWithDates, 'Composer', epoque)
-                
-            saveArtists(artistLookup)
-                
-        except Exception as e:
-            log.error('Error making composer: ' + str(e))
-
-
-class ConductorFileAction(BaseAction):
-    NAME = 'Add conductor to lookup'
-
-    def callback(self, objs):
-        
-        try:
-            log.debug('ConductorFileAction called.')
-            
-            global artistLookup
-            
-            for track in objs:
-                if not track or not track.metadata:
-                    continue
-                if 'conductor' in track.metadata:                
-                    name = track.metadata['conductor']
-                    sortorder = reverseName(name)
-                    upsertArtist(artistLookup, name, sortorder, '', 'Conductor', '')
-                
-            saveArtists(artistLookup)
-                
-        except Exception as e:
-            log.error('Error making conductor: ' + str(e))      
-
-class OrchestraFileAction(BaseAction):
-    NAME = 'Add orchestra to lookup'
-
-    def callback(self, objs):
-        
-        try:
-            log.debug('OrchestraFileAction called.')
-            
-            global artistLookup
-            
-            for track in objs:
-                if not track or not track.metadata:
-                    continue
-                if 'orchestra' in track.metadata:
-                    name = track.metadata['orchestra']
-                    upsertArtist(artistLookup, name, name, '', 'Orchestra', '')                
-            saveArtists(artistLookup)
-                
-        except Exception as e:
-            log.error('Error making orchestra: ' + str(e)) 
-
-
-
+#performs classical fixes on the file passed. This is the bulk of the implementation
 def fixFile(f):
     try:
-        log.info('Processing ' + str(f))
-        #composerViewTag=''
-        #artistsTag = ''
-        #albumArtistsTag =''
+        log.info('CLASSICAL FIXES: Processing ' + str(f))
         trackArtists = []
         trackAlbumArtists = []
         global artistLookup
         global regexes
 
+        #fill arrays for artist and album artist
         if 'artist' in f.metadata:
             trackArtists = expandList(f.metadata['artist'])
 
         log.debug ('Normalized track artists: ' + str(trackArtists))
 
         if 'album artist' in f.metadata and 'albumartist' not in f.metadata:
-            log.debug('Have album artist but no albumartist: ' + f.metadata['album artist'])
+            log.debug('CLASSICAL FIXES: Have album artist but no albumartist: ' + f.metadata['album artist'])
             f.metadata['albumArtist'] = f.metadata['album artist']
 
         if 'albumartist' in f.metadata:
             trackAlbumArtists = expandList(f.metadata['albumartist'])                                       
         
-        log.debug('Checking artists to fill conductor, composer, and orchestra tags if needed.')
+        #Find missing composer, orchestra, and conductor
+        #log.debug('CLASSICAL FIXES: Checking artists to fill conductor, composer, and orchestra tags if needed.')
         for trackArtist in trackArtists:
             trackArtistKey = makeKey(trackArtist)
             if trackArtistKey in artistLookup:
                 foundArtist = artistLookup[trackArtistKey]
                 if foundArtist.primaryrole =='Orchestra' and ('orchestra' not in f.metadata or f.metadata['orchestra'] == ''):
-                    log.debug('assigning orchestra from artist tag: ' + foundArtist.name)
+                    log.info('CLASSICAL FIXES: assigning orchestra from artist tag: ' + foundArtist.name)
                     f.metadata['orchestra'] = foundArtist.name
                 if foundArtist.primaryrole =='Conductor' and ('conductor' not in f.metadata or f.metadata['conductor'] == ''):
-                    log.debug('assigning conductor from artist tag: ' + foundArtist.name)
+                    log.info('CLASSICAL FIXES: assigning conductor from artist tag: ' + foundArtist.name)
                     f.metadata['conductor'] = foundArtist.name
                 if foundArtist.primaryrole =='Composer' and ('composer' not in f.metadata or f.metadata['composer'] == ''):
-                    log.debug('assigning composer from artist tag: ' + foundArtist.name)
+                    log.info('CLASSICAL FIXES: assigning composer from artist tag: ' + foundArtist.name)
                     f.metadata['composer'] = foundArtist.name
                     f.metadata['composer view'] = foundArtist.sortorderwithdates
                     f.metadata['composersort'] = foundArtist.sortorder
                     f.metadata['epoque'] = foundArtist.primaryepoque
             else:
-                log.debug('No artists found for key: ' + trackArtistKey)
+                log.debug('CLASSICAL FIXES: No artists found for key: ' + trackArtistKey)
 
-        log.debug('Checking album artists to fill conductor, composer, and orchestra tags if needed.')
+        #log.debug('CLASSICAL FIXES: Checking album artists to fill conductor, composer, and orchestra tags if needed.')
         for albumArtist in trackAlbumArtists:
             trackAlbumArtistKey = makeKey(albumArtist)
             if trackAlbumArtistKey in artistLookup:
                 foundArtist = artistLookup[trackAlbumArtistKey]
                 if foundArtist.primaryrole =='Orchestra' and ('orchestra' not in f.metadata or f.metadata['orchestra'] == ''):
-                    log.debug('assigning orchestra from albumartist tag: ' + foundArtist.name)
+                    log.info('CLASSICAL FIXES: assigning orchestra from albumartist tag: ' + foundArtist.name)
                     f.metadata['orchestra'] = foundArtist.name
                 if foundArtist.primaryrole =='Conductor' and ('conductor' not in f.metadata or f.metadata['conductor'] == ''):
-                    log.debug('assigning conductor from albumartist tag: ' + foundArtist.name)
+                    log.info('CLASSICAL FIXES: assigning conductor from albumartist tag: ' + foundArtist.name)
                     f.metadata['conductor'] = foundArtist.name
                 if foundArtist.primaryrole =='Composer' and ('composer' not in f.metadata or f.metadata['composer'] == ''):
-                    log.debug('assigning composer from albumartist tag: ' + foundArtist.name)
+                    log.info('CLASSICAL FIXES: assigning composer from albumartist tag: ' + foundArtist.name)
                     f.metadata['composer'] = foundArtist.name
                     f.metadata['composer view'] = foundArtist.sortorderwithdates
                     f.metadata['composersort'] = foundArtist.sortorder
                     f.metadata['epoque'] = foundArtist.primaryepoque
             else:
-                log.debug('No albumartists found for key: ' + trackAlbumArtistKey)
+                log.debug('CLASSICAL FIXES: No albumartists found for key: ' + trackAlbumArtistKey)
 
         
         #if there is a composer, look it up against the list and replace what is there if it is different.
         #same with view.
         #If there is more than one composer, do nothing.
-        log.debug('Looking up composer')
+        #log.debug('CLASSICAL FIXES: Looking up composer')
         if 'composer' in f.metadata and f.metadata['composer'] != '' and len(expandList(f.metadata['composer'])) ==1:
-            log.debug('There is one composer: ' + str(f.metadata['composer']))
+            #log.debug('CLASSICAL FIXES: There is one composer: ' + str(f.metadata['composer']))
             composerKey = makeKey(f.metadata['composer'])
-            #log.debug('Composerkey: ' + composerKey)
+            #log.debug('CLASSICAL FIXES: Composerkey: ' + composerKey)
             if composerKey in artistLookup:
                 foundComposer = artistLookup[composerKey]
                 if foundComposer.primaryrole == 'Composer':
-                    log.debug('Found composer in lookup - setting tags')
+                    log.info('CLASSICAL FIXES: Found composer in lookup - setting tags')
                     f.metadata['composer'] = foundComposer.name
                     f.metadata['composer view'] = foundComposer.sortorderwithdates
                     f.metadata['composersort'] = foundComposer.sortorder
@@ -435,27 +371,30 @@ def fixFile(f):
             else:
                 if 'composer view' not in f.metadata:
                     #there is a composer, but it was not found on lookup. Make Last, First Composer view tag
-                    log.debug('Composer not found in lookup. Fabricating composer view tag.')
+                    log.info('CLASSICAL FIXES: Composer not found in lookup. Fabricating composer view tag.')
                     f.metadata['composer view'] = reverseName(f.metadata['composer'])
                     f.metadata['composersort'] = f.metadata['composer view']
 
         #if there is a conductor, normalize against lookup if found
-        log.debug('Looking up conductor')
+        #log.debug('CLASSICAL FIXES: Looking up conductor')
         if 'conductor' in f.metadata and f.metadata['conductor'] != '':
-            log.debug('There is a conductor')
+            #log.debug('CLASSICAL FIXES: There is a conductor')
             conductorKey = makeKey(f.metadata['conductor'])
             if conductorKey in artistLookup:
                 foundConductor = artistLookup[conductorKey]
                 if foundConductor.primaryrole == 'Conductor':
+                    log.info('CLASSICAL FIXES: Found conductor in lookup. Setting name')
                     f.metadata['conductor'] = foundConductor.name
 
-        log.debug('Looking up orchestra')
+        #if there is an orchestra, normalize against lookup if found
+        #log.debug('CLASSICAL FIXES: Looking up orchestra')
         if 'orchestra' in f.metadata and f.metadata['orchestra'] != '':
-            log.debug('There is an orchestra')
+            #log.debug('CLASSICAL FIXES: There is an orchestra')
             orchKey = makeKey(f.metadata['orchestra'])
             if orchKey in artistLookup:
                 foundOrchestra = artistLookup[orchKey]
                 if foundOrchestra.primaryrole == 'Orchestra':
+                    log.info('CLASSICAL FIXES: Found orchestra in lookup. Setting name')
                     f.metadata['orchestra'] = foundOrchestra.name                    
 
                 
@@ -463,28 +402,37 @@ def fixFile(f):
         if 'orchestra' not in f.metadata:
             for artist in trackArtists:
                 if ORCH_RE.search(artist):
-                    log.debug('Found something that looks like an orchestra in the artist tags. Setting.')
+                    log.info('CLASSICAL FIXES: Found something that looks like an orchestra in the artist tags. Setting orchestra to ' + artist)
                     f.metadata['orchestra'] = artist
                     break
 
-        #if there is a conductor AND and orchestra tag, and either are in the album artist tag, rearrange
-        log.debug('checking for conductor and orchestra in album artists.')
-        if 'conductor' in f.metadata and 'orchestra' in f.metadata:
-            log.debug('albumartist: ' + '; '.join(trackAlbumArtists))
-            log.debug('conductor: ' + f.metadata['conductor'])
-            log.debug('orchestra: ' + f.metadata['orchestra'])
+        #if there is no orchestra, but there is an album artist tag that contains a name that looks like an orchestra, use that
+        if 'orchestra' not in f.metadata:
+            for artist in trackAlbumArtists:
+                if ORCH_RE.search(artist):
+                    log.info('CLASSICAL FIXES: Found something that looks like an orchestra in the album artist tags. Setting orchestra to ' + artist)
+                    f.metadata['orchestra'] = artist
+                    break
+
+        #TODO: refactor - extract method
+        #if there is a conductor or an orchestra tag, and either are in the album artist tag, rearrange
+        log.debug('CLASSICAL FIXES: checking for conductor and orchestra in album artists.')
+        if 'conductor' in f.metadata or 'orchestra' in f.metadata:
+            #log.debug('CLASSICAL FIXES: albumartist: ' + '; '.join(trackAlbumArtists))
+            #log.debug('CLASSICAL FIXES: conductor: ' + f.metadata['conductor'])
+            #log.debug('CLASSICAL FIXES: orchestra: ' + f.metadata['orchestra'])
 
             foundConductor = ''
             foundOrchestra = ''
-            #log.debug('Track artists count: ' + len(trackAlbumArtists))
+            #log.debug('CLASSICAL FIXES: Track artists count: ' + len(trackAlbumArtists))
             for artist in trackAlbumArtists:
-                log.debug('Processing album artist: ' + artist)
+                #log.debug('CLASSICAL FIXES: Processing album artist: ' + artist)
                 if AreSimilar(artist.lower(), f.metadata['conductor'].lower()):
-                    log.debug('Found Conductor in album artist')
+                    #log.debug('CLASSICAL FIXES: Found Conductor in album artist')
                     foundConductor=artist
                     continue
                 if AreSimilar(artist.lower(), f.metadata['orchestra'].lower()):
-                    log.debug('Found orchestra in album artist')
+                    #log.debug('CLASSICAL FIXES: Found orchestra in album artist')
                     foundOrchestra=artist
                     continue
             if foundConductor or foundOrchestra:            
@@ -497,26 +445,25 @@ def fixFile(f):
                     if artist.lower() != foundOrchestra.lower() and artist.lower() != foundConductor.lower():
                         newAlbumArtistTag.append(artist)
                     tagValue = '; '.join(str(a) for a in newAlbumArtistTag )
-                log.debug('Setting album artist to: ' + tagValue )
+                log.info('CLASSICAL FIXES: Setting album artist to: ' + tagValue )
                 if f.metadata['albumartist'] != tagValue:
                     f.metadata['albumartist'] = tagValue
 
-
-        log.debug('checking for conductor and orchestra in artists')
-        #if there is a conductor AND and orchestra tag, and either are in the artist tag, rearrange
-        log.debug('checking for conductor and orchestra in album artists')
-        if 'conductor' in f.metadata and 'orchestra' in f.metadata:
-            log.debug('There is a conductor and orchestra tag')
+       
+        #if there is a conductor or an orchestra tag, and either are in the artist tag, rearrange
+        log.debug('CLASSICAL FIXES: checking for conductor and orchestra in artists')
+        if 'conductor' in f.metadata or 'orchestra' in f.metadata:
+            log.debug('CLASSICAL FIXES: There is a conductor and orchestra tag')
             foundConductor = ''
             foundOrchestra = ''
-            #log.debug('Track artists count: ' + len(trackAlbumArtists))
+            #log.debug('CLASSICAL FIXES: Track artists count: ' + len(trackAlbumArtists))
             for artist in trackArtists:
-                log.debug('Processing artist: ' + artist + ' - conductor is: ' + f.metadata['conductor'])
+                #log.debug('CLASSICAL FIXES: Processing artist: ' + artist + ' - conductor is: ' + f.metadata['conductor'])
                 if AreSimilar(artist.lower(), f.metadata['conductor'].lower()):
-                    log.debug('Found Conductor in artist')
+                    #log.debug('CLASSICAL FIXES: Found Conductor in artist')
                     foundConductor=artist
                 if AreSimilar(artist.lower(), f.metadata['orchestra'].lower()):
-                    log.debug('Found orchestra in artist')
+                    #log.debug('CLASSICAL FIXES: Found orchestra in artist')
                     foundOrchestra=artist
             if foundConductor or foundOrchestra:            
                 newArtistTag = []
@@ -527,47 +474,46 @@ def fixFile(f):
                 for artist in trackArtists:
                     if artist.lower() != foundConductor.lower() and artist.lower() != foundOrchestra.lower():
                         newArtistTag.append(artist)
-                log.debug('Setting artist to: ' + str(newArtistTag))
+                log.info('CLASSICAL FIXES: Setting artist to: ' + str(newArtistTag))
                 if f.metadata['artist'] != newArtistTag:
                     f.metadata['artist'] = newArtistTag                       
 
+        #resetting arrays
         trackAlbumArtists = expandList(f.metadata['albumartist'])
         trackArtists = expandList(f.metadata['artist'])
 
-        log.debug('Before - albumartist is: ' + f.metadata['albumartist'] + '|')
+        #log.debug('CLASSICAL FIXES: Before - albumartist is: ' + f.metadata['albumartist'] + '|')
         
         #if there is a composer tag, and it also exists in track or album artists, remove it.
         if 'composer' in f.metadata:
-            log.debug('Searching for composer in artist and album artist tags')
+            log.debug('CLASSICAL FIXES: Searching for composer in artist and album artist tags')
             newArtists = []
             newAlbumArtistTag = []
             for artist in trackArtists:
-                if artist.strip().lower() != f.metadata['composer'].strip().lower():
+                if not AreSimilar(artist.strip().lower(), f.metadata['composer'].strip().lower()):
                     newArtists.append(artist.strip())
-                else:
-                    log.debug('Found composer in artist tag. Removing.')
             if newArtists:
                 if f.metadata['artist'] != newArtists:
                     f.metadata['artist'] = newArtists
                     
             for albumArtist in trackAlbumArtists:
-                if albumArtist.strip().lower() != f.metadata['composer'].strip().lower():
+                if not AreSimilar(albumArtist.strip().lower(), f.metadata['composer'].strip().lower()):
                     newAlbumArtistTag.append(albumArtist.strip())
             if newAlbumArtistTag:
                 f.metadata['albumartist'] = '; '.join(str(a) for a in newAlbumArtistTag)
 
-        log.debug('After - albumartist is: ' + f.metadata['albumartist'] + '|')
+        #log.debug('CLASSICAL FIXES: After - albumartist is: ' + f.metadata['albumartist'] + '|')
 
 
         if f.metadata['albumartist'] == 'Various':
             f.metadata['albumartist'] = 'Various Artists'
         
         if 'artist' not in f.metadata and 'albumartist' in f.metadata:
-            log.debug('No artist tag found, but there is an album artist. Using album artist.')
+            log.info('CLASSICAL FIXES: No artist tag found, but there is an album artist. Using album artist.')
             f.metadata['artist'] = f.metadata['albumartist'].split('; ')
             
         if 'albumartist' not in f.metadata and 'artist' in f.metadata:
-            log.debug('No album artist tag found, but there is an artist. Using artist.')
+            log.info('CLASSICAL FIXES: No album artist tag found, but there is an artist. Using artist.')
             if isinstance(f.metadata['artist'], str):
                 f.metadata['albumartist'] = f.metadata['artist']
             else:
@@ -587,34 +533,42 @@ def fixFile(f):
         #f.metadata['album'] = re.sub('[[](?![Ll][Ii][Vv][Ee]|[44k]|[88k]|[Mm][Qq][Aa]|[Bb][Oo][Oo]|[Ii][Mm][Pp]|[Ff][Ll][Aa][Cc]|[[Dd][Ss][Dd]|[Mm][Pp][3]|[Dd][Ss][Ff])[a-zA-Z0-9 ]{1,}[]]', '',  f.metadata['album']).strip()
 
         #regexes for title and album name
-        log.debug('Executing regex substitutions')
+        log.debug('CLASSICAL FIXES: Executing regex substitutions')
         for regex in regexes:
             #log.debug(regex[0] + ' - ' + regex[1]) 
             trackName = f.metadata['title']
             albumName = f.metadata['album']
-            #log.debug('Was: ' + trackName + ' | ' + albumName)
+            #log.debug('CLASSICAL FIXES: Was: ' + trackName + ' | ' + albumName)
             trackName = re.sub(regex[0], regex[1], trackName)
             albumName = re.sub(regex[0], regex[1], albumName)
-            #log.debug('Is now: ' + trackName + ' | ' + albumName)
-            f.metadata['title'] = trackName
-            f.metadata['album'] = albumName
+            #log.debug('CLASSICAL FIXES: Is now: ' + trackName + ' | ' + albumName)
+            if f.metadata['title'] != trackName:
+                log.info('CLASSICAL FIXES: Fixing title: ' + trackName)
+                f.metadata['title'] = trackName
+            if f.metadata['album'] != albumName:
+                log.info('CLASSICAL FIXES: Fixing title: ' + albumName)
+                f.metadata['album'] = albumName
 
 
-        log.debug('Fixing genre')
+        #log.debug('CLASSICAL FIXES: Fixing genre')
         #move genre tag to "OrigGenre" and replace with Classical
         if 'genre' in f.metadata:
             if f.metadata['genre'] != 'Classical':
                 if f.metadata['genre'].lower() in SUB_GENRES:
+                    log.info('CLASSICAL FIXES: Fixing genre')
                     f.metadata['origgenre'] = f.metadata['genre']
                     f.metadata['genre'] = 'Classical'
         else:
             f.metadata['genre'] = 'Classical'
 
+        #tag the file so we know when it was fixed.
+        f.metadata['classicalfixesdate'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        f.update()
         
     except Exception as e:
-        log.error('An error occured fixing the file: ' + str(e))
+        log.error('CLASSICAL FIXES: An error occured fixing the file: ' + str(e))
 
-
+#Processes classic fixes on a group of files. It has some rollback features to ensure album level information doesn't get inconsistent.
 def ProcessListOfFiles(objs):
     #If all of the track album titles and album artists are the same before hand, they should all be the same after
     
@@ -625,7 +579,7 @@ def ProcessListOfFiles(objs):
     albumArtistsAllSame = True
     for track in objs:
         if not track or not track.metadata:
-            log.debug('No file/metadata/title for file')
+            log.debug('CLASSICAL FIXES: No file/metadata/title for file')
             continue                
         if not albumName:
             albumName = track.metadata['album']
@@ -633,15 +587,15 @@ def ProcessListOfFiles(objs):
             albumArtists = track.metadata['albumartist']
         if track.metadata['album'] != albumName:
             albumsAllSame = False
-            log.debug('Not all original album names the same')
+            log.debug('CLASSICAL FIXES: Not all original album names the same')
         if track.metadata['albumartist'] != albumArtists:
             albumArtistsAllSame = False
-            log.debug('Not all original album artists the same')
+            log.debug('CLASSICAL FIXES: Not all original album artists the same')
     
     #Do the processing
     for track in objs:    
         if not track or not track.metadata:
-            log.debug('No file/metadata/title for file')
+            log.debug('CLASSICAL FIXES: No file/metadata/title for file')
             continue                
                         
         fixFile(track)
@@ -655,7 +609,7 @@ def ProcessListOfFiles(objs):
     newalbumArtistsAllSame = True
     for track in objs:
         if not track or not track.metadata:
-            log.debug('No file/metadata/title for file')
+            log.debug('CLASSICAL FIXES: No file/metadata/title for file')
             continue                
         if not newalbumName:
             newalbumName = track.metadata['album']
@@ -663,55 +617,152 @@ def ProcessListOfFiles(objs):
             newalbumArtists = track.metadata['albumartist']
         if track.metadata['album'] != newalbumName:
             newalbumsAllSame = False
-            log.debug('Not all new album names the same')
+            log.debug('CLASSICAL FIXES: Not all new album names the same')
         if track.metadata['albumartist'] != newalbumArtists:
             newalbumArtistsAllSame = False
-            log.debug('Not all new album artists the same')
+            log.debug('CLASSICAL FIXES: Not all new album artists the same')
                     
     for track in objs:
         if albumArtistsAllSame and not newalbumArtistsAllSame:
             #rollback albumartists
-            log.debug('Rolling back album artists.')
+            log.debug('CLASSICAL FIXES: Rolling back album artists.')
             track.metadata['albumartist'] = albumArtists
             track.metadata['album artist'] = albumArtists
         if albumsAllSame and not newalbumsAllSame:
-            log.debug('Rolling back album name')
+            log.debug('CLASSICAL FIXES: Rolling back album name')
             track.metadata['album'] = albumName
+
+
+#action for menu
+class NumberTracksInAlbumFileAction(BaseAction):
+    NAME = 'Renumber tracks sequentially by album'
+
+    def callback(self, objs):
+        
+        try:
+            log.debug('CLASSICAL FIXES: NumberTracksInAlbumFileAction called.')
+            tracks = sorted(objs, key=track_key)
+            RenumberFiles(tracks)
+        except Exception as e:
+            log.error('CLASSICAL FIXES: Error in NumberTracksInAlbumFileAction: ' + str(e))
+
+#action for menu
+class ComposerFileAction(BaseAction):
+    NAME = 'Add composer to lookup'
+
+    def callback(self, objs):
+        
+        try:
+            log.debug('CLASSICAL FIXES: ComposerFileAction called.')
+            
+            global artistLookup
+            
+            for track in objs:
+                if not track or not track.metadata:
+                    log.debug('CLASSICAL FIXES: No track metadata available')
+                    continue
+                
+                if 'composer' not in track.metadata or 'composer view' not in track.metadata or 'epoque' not in track.metadata:
+                    log.info('CLASSICAL FIXES: No composer metadata available')
+                    continue
+                    
+                name = track.metadata['composer']
+                sortOrderWithDates = track.metadata['composer view']
+                parenpos = sortOrderWithDates.find('(')
+                if parenpos == 0:
+                    parenpos = 100
+                sortorder = sortOrderWithDates[:parenpos+1].strip('( ')
+                epoque = track.metadata['epoque']
+                
+                upsertArtist(artistLookup, name, sortorder, sortOrderWithDates, 'Composer', epoque)
+                
+            saveArtists(artistLookup)
+                
+        except Exception as e:
+            log.error('CLASSICAL FIXES: Error making composer: ' + str(e))
+
+#action for menu
+class ConductorFileAction(BaseAction):
+    NAME = 'Add conductor to lookup'
+
+    def callback(self, objs):
+        
+        try:
+            log.debug('CLASSICAL FIXES: ConductorFileAction called.')
+            
+            global artistLookup
+            
+            for track in objs:
+                if not track or not track.metadata:
+                    continue
+                if 'conductor' in track.metadata:                
+                    name = track.metadata['conductor']
+                    sortorder = reverseName(name)
+                    upsertArtist(artistLookup, name, sortorder, '', 'Conductor', '')
+                
+            saveArtists(artistLookup)
+                
+        except Exception as e:
+            log.error('CLASSICAL FIXES: Error making conductor: ' + str(e))      
+
+#action for menu
+class OrchestraFileAction(BaseAction):
+    NAME = 'Add orchestra to lookup'
+
+    def callback(self, objs):
+        
+        try:
+            log.debug('CLASSICAL FIXES: OrchestraFileAction called.')
+            
+            global artistLookup
+            
+            for track in objs:
+                if not track or not track.metadata:
+                    continue
+                if 'orchestra' in track.metadata:
+                    name = track.metadata['orchestra']
+                    upsertArtist(artistLookup, name, name, '', 'Orchestra', '')                
+            saveArtists(artistLookup)
+                
+        except Exception as e:
+            log.error('CLASSICAL FIXES: Error making orchestra: ' + str(e)) 
     
-    
+#action for menu    
 class FixFileAction(BaseAction):
     NAME = 'Do classical fixes on selected files'
     def callback(self, objs):
         ProcessListOfFiles(objs)
 
 
+#action for menu
 class NumberTracksInAlbumClusterAction(BaseAction):
     NAME = 'Renumber tracks in albums sequentially'
 
     def callback(self, objs):
         try:
-            log.debug('Processinging track numbers for selected clusters')
+            log.debug('CLASSICAL FIXES: Processinging track numbers for selected clusters')
             allFiles = []
             for cluster in objs:
                 if not isinstance(cluster, Cluster) or not cluster.files:
                     continue
                 allFiles += cluster.files
                 
-            #log.debug('Total files to process: ' + str(len(allFiles)))
-            #log.debug('Unsorted:')
+            #log.debug('CLASSICAL FIXES: Total files to process: ' + str(len(allFiles)))
+            #log.debug('CLASSICAL FIXES: Unsorted:')
             #for file in allFiles:
             #    log.debug(track_key(file))
             allFiles = sorted(allFiles, key=track_key)
-            #log.debug('Sorted:')
+            #log.debug('CLASSICAL FIXES: Sorted:')
             #for file in allFiles:
             #    log.debug(track_key(file))
             RenumberFiles(allFiles)           
             for cluster in objs:
                 cluster.update()
         except Exception as e:
-            log.error('An error has occurred in NumberTracksInAlbumClusterAction: ' + str(e))
+            log.error('CLASSICAL FIXES: An error has occurred in NumberTracksInAlbumClusterAction: ' + str(e))
         
 
+#action for menu
 class FixClusterAction(BaseAction):
     NAME = 'Do classical fixes on selected clusters'
 
@@ -719,7 +770,7 @@ class FixClusterAction(BaseAction):
     
         try:
     
-            log.debug('Classical Fixes started')
+            log.debug('CLASSICAL FIXES: Classical Fixes started')
             #go through the tracks in the cluster        
             for cluster in objs:
                 if not isinstance(cluster, Cluster) or not cluster.files:
@@ -729,22 +780,23 @@ class FixClusterAction(BaseAction):
                 # for i, f in enumerate(cluster.files):
 
                     # if not f or not f.metadata:
-                        # log.debug('No file/metadata/title for [%i]' % (i))
+                        # log.debug('CLASSICAL FIXES: No file/metadata/title for [%i]' % (i))
                         # continue                
                     
                     # fixFile(f)
                 cluster.update()
                 
         except Exception as e:
-            log.error('An error has occurred in FixClusterAction: ' + str(e))
+            log.error('CLASSICAL FIXES: An error has occurred in FixClusterAction: ' + str(e))
 
-DISC_RE = re.compile('(.*)[Dd][Ii][Ss][CcKk][ ]*([0-9]*)')
 
+
+#action for menu
 class CombineDiscs(BaseAction):
     NAME = 'Combine discs into single album'
 
     def callback(self, objs):
-        log.debug('Combine Discs started')
+        log.debug('CLASSICAL FIXES: Combine Discs started')
 
             #go through the track in the cluster        
         try:
@@ -755,13 +807,13 @@ class CombineDiscs(BaseAction):
             #Do some validation and make everything we're combining belongs to the same album and a multi-disc set.
             for cluster in objs:
                 if not isinstance(cluster, Cluster) or not cluster.files:
-                    log.info('One of the items selected is not a cluster. Exiting.')
+                    log.info('CLASSICAL FIXES: One of the items selected is not a cluster. Exiting.')
                     return
                 
                 #First make sure all the clusters have album title in the regex
                 result = DISC_RE.match(cluster.metadata['album'])
                 if not result:
-                    log.info('Not all clusters selected appear to belong to a multi-disc set.')
+                    log.info('CLASSICAL FIXES: Not all clusters selected appear to belong to a multi-disc set.')
                     return
                 else:
                     if not albumName:
@@ -769,13 +821,13 @@ class CombineDiscs(BaseAction):
                     else:
                         #name must match
                         if result.group(1).strip(';,-: ') != albumName:
-                            log.info('Album name mismatch. Not all clusters selected appear to belong to the same multi-disc set.')
+                            log.info('CLASSICAL FIXES: Album name mismatch. Not all clusters selected appear to belong to the same multi-disc set.')
                             return
                 
-            log.info('All clusters appear to be part of the same multi-disc set. Combining.')
+            log.info('CLASSICAL FIXES: All clusters appear to be part of the same multi-disc set. Combining.')
             #log.debug(albumName + ' by: ' + ''.join(albumArtist) + ' date: ' + str(albumDate))
             totalClusters = len(objs)
-            log.debug('There are %i clusters' % totalClusters)
+            log.debug('CLASSICAL FIXES: There are %i clusters' % totalClusters)
             currdisc = 1
 
             albumdate = None
@@ -785,14 +837,14 @@ class CombineDiscs(BaseAction):
                 for cluster in objs:
                     #group 1 is the album title (needs to be stripped)
                     #group 2 is the disc #
-                    log.debug('Processing ' + cluster.metadata['album'])
+                    log.debug('CLASSICAL FIXES: Processing ' + cluster.metadata['album'])
                     result = DISC_RE.match(cluster.metadata['album'])
                     if result:
-                        log.debug('Have result ' + result.group(1) + ' - ' + result.group(2))
+                        log.debug('CLASSICAL FIXES: Have result ' + result.group(1) + ' - ' + result.group(2))
                         
                     foundDisc = int(result.group(2))
                     if foundDisc == currdisc:
-                        log.debug('Found disc %i in album name' % currdisc)
+                        log.debug('CLASSICAL FIXES: Found disc %i in album name' % currdisc)
                         matchingCluster = cluster
                         break
                 
@@ -816,15 +868,15 @@ class CombineDiscs(BaseAction):
                             albumArtist = matchingCluster.metadata['album artist']
                     
                     # #set title, albumartist, disc number, and total disc tags on all tracks
-                    log.info('Setting album values for album')
+                    log.info('CLASSICAL FIXES: Setting album values for album')
                     for i, f in enumerate(matchingCluster.files):
                         if i == 0 and currdisc == 1:                            
                             if 'date' in f.metadata:
                                 albumDate = str(f.metadata['date'])
-                                log.debug('Assigned date: ' + str(albumDate))
+                                log.debug('CLASSICAL FIXES: Assigned date: ' + str(albumDate))
                             else:
-                                log.debug('No date found')
-                        log.info('Updating data for file: ' + f.filename)
+                                log.debug('CLASSICAL FIXES: No date found')
+                        log.info('CLASSICAL FIXES: Updating data for file: ' + f.filename)
                         f.metadata['album'] = albumName
                         f.metadata['albumartist'] = albumArtist
                         f.metadata['album artist'] = albumArtist
@@ -834,7 +886,7 @@ class CombineDiscs(BaseAction):
                     
                 currdisc = currdisc + 1
                 
-            log.info('Setting cluster-level data')
+            log.info('CLASSICAL FIXES: Setting cluster-level data')
             for cluster in objs:
                 cluster.metadata['album'] = albumName
                 cluster.metadata['albumartist'] = albumArtist
@@ -842,9 +894,11 @@ class CombineDiscs(BaseAction):
 
                 
         except Exception as e:
-            log.error('Combining error: ' + str(e))
+            log.error('CLASSICAL FIXES: Combining error: ' + str(e))
         
 
+
+#commands to add the menus
 register_cluster_action(CombineDiscs())
 register_cluster_action(FixClusterAction())
 register_cluster_action(NumberTracksInAlbumClusterAction())
