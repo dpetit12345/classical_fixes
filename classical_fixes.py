@@ -95,6 +95,7 @@ regexes = [
     ['\\b[Kk][ .]*([0-9])', 'K. \\1'],
     ['\\b[Aa][Nn][Hh][ .]*([0-9])', 'Anh. \\1'],
     ['[,]([^ ])', ', \\1'], #Ensure spaces after commas
+    ['[ ][:]', ':'], #Ensure no space before colon
     ['\\s{2,}',' '] # remove duplicate spaces
 ]
 
@@ -250,6 +251,10 @@ def expandList(thelist):
         for item in inlist:
             cleaned = item.replace('; ', ';')
             outlist += cleaned.split(';')
+        inlist = outlist.copy()
+        outlist = []
+        for item in inlist:
+            outlist += [s.strip() for s in item.split('&')]
         return outlist
     except Exception as e:
         log.error('CLASSICAL FIXES: Error expanding list: ' + str(e))
