@@ -103,8 +103,11 @@ COMMON_SUFFIXES = ['jr', 'sr', 'jr.', 'sr.', 'i', 'ii', 'iii', 'iv', 'v', 'vi', 
 
 DISC_RE = re.compile('(.*)[Dd][Ii][Ss][CcKk][ ]*([0-9]*)')
 
+AMP_RE = re.compile('([&]|[and]) ([Hh]is Orchestra|Chorus)')
+
 #given an input, makes a unique by hashing the value. Replaces non-ascii characters with equivelents (for the most part) and strips punctuation, then coverts to lower case.
 def makeKey(inputstring):
+    log.debug('making key for: ' + str(inputstring))
     stripped = ''.join(c for c in unicodedata.normalize('NFD', inputstring)
                   if unicodedata.category(c) != 'Mn')
     stripped = stripped.replace('-','')
@@ -242,19 +245,22 @@ def saveArtists(artistDict):
         log.error('CLASSICAL FIXES: Error occured saving artists: ' + str(e))
 
 #For tags where multiple values are stored in one semi-colon separated string, expands them into an array.
-def expandList(thelist):
+def expandList(thelist, splitchar=';'):
     try:
         outlist = []
+        #log.debug('In list: ' + thelist)
         inlist = thelist
         if type(inlist) is not list:
             inlist = [inlist]
-        for item in inlist:
-            cleaned = item.replace('; ', ';')
-            outlist += cleaned.split(';')
-        inlist = outlist.copy()
-        outlist = []
-        for item in inlist:
-            outlist += [s.strip() for s in item.split('&')]
+        #log.debug('In list: ' + str(inlist))
+        for item in inlist:       
+            log.debug('item: ' + item)
+            outlist += [a.strip() for a in item.split(splitchar)]
+            log.debug('outlist: ' + str(outlist))
+        # inlist = outlist.copy()
+        # outlist = []
+        # for item in inlist:
+            # outlist += [s.strip() for s in item.split('&')]
         return outlist
     except Exception as e:
         log.error('CLASSICAL FIXES: Error expanding list: ' + str(e))
@@ -486,6 +492,50 @@ def fixFile(f):
         #resetting arrays
         trackAlbumArtists = expandList(f.metadata['albumartist'])
         trackArtists = expandList(f.metadata['artist'])
+        
+        #if an artist or album artist tag contains "&", but is not in the pattern below, split it
+        #  ([&]|[and]) ([Hh]is Orchestra|Chorus)
+        newArtistTag = []
+        for aa in trackAlbumArtists:
+            artist = str(aa)
+            if artist.find('&') != -1:
+                log.debug('Found &')
+                if not AMP_RE.search(artist):
+                    #split by the amp
+                    log.debug('No Amp found. expanding artist: ' + artist)
+                    newArtistTag += expandList(artist,'&')
+                else:
+                    log.debug('appending: ' + artist)
+                    newArtistTag.append(artist)
+
+            else:
+                log.debug('appending: ' + artist)
+                newArtistTag.append(artist)
+        if f.metadata['albumartist'] != newArtistTag:
+            f.metadata['albumartist'] = newArtistTag                       
+        
+        newArtistTag = []
+        for aa in trackArtists:
+            artist = str(aa)
+            if artist.find('&') != -1:
+                log.debug('Found &')
+                if not AMP_RE.search(artist):
+                    #split by the amp
+                    log.debug('No Amp found. expanding artist: ' + artist)
+                    newArtistTag += expandList(artist,'&')
+                else:
+                    log.debug('appending: ' + artist)
+                    newArtistTag.append(artist)
+
+            else:
+                log.debug('appending: ' + artist)
+                newArtistTag.append(artist)
+        if f.metadata['artist'] != newArtistTag:
+            f.metadata['artist'] = newArtistTag                       
+        
+        #resetting arrays
+        trackAlbumArtists = expandList(f.metadata['albumartist'])
+        trackArtists = expandList(f.metadata['artist'])
 
         #log.debug('CLASSICAL FIXES: Before - albumartist is: ' + f.metadata['albumartist'] + '|')
         
@@ -508,7 +558,9 @@ def fixFile(f):
                 f.metadata['albumartist'] = '; '.join(str(a) for a in newAlbumArtistTag)
 
         #log.debug('CLASSICAL FIXES: After - albumartist is: ' + f.metadata['albumartist'] + '|')
-
+        
+        
+        #TODO: Keep album artists in array until here, now assign.
 
         if f.metadata['albumartist'] == 'Various':
             f.metadata['albumartist'] = 'Various Artists'
