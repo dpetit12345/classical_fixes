@@ -248,20 +248,31 @@ def saveArtists(artistDict):
 def expandList(thelist, splitchar=';'):
     try:
         outlist = []
-        #log.debug('In list: ' + thelist)
         inlist = thelist
         if type(inlist) is not list:
             inlist = [inlist]
-        #log.debug('In list: ' + str(inlist))
+        
         for item in inlist:       
-            log.debug('item: ' + item)
             outlist += [a.strip() for a in item.split(splitchar)]
-            log.debug('outlist: ' + str(outlist))
-        # inlist = outlist.copy()
-        # outlist = []
-        # for item in inlist:
-            # outlist += [s.strip() for s in item.split('&')]
+ 
+        inlist = outlist
+        outlist = []
+        
+        for item in inlist:
+            if item.find('&') != -1:
+                log.debug('Found & in ' + item)
+                if not AMP_RE.search(item):
+                    log.debug('Not an exception. Expanding artist: ' + item)
+                    outlist += [a.strip() for a in item.split('&')]
+                else:
+                    outlist.append(item)
+            else:
+                #log.debug('No & found. Appending ' + item)
+                outlist.append(item)
+
+        #log.debug(str(thelist) + ' split to ' + str(outlist))
         return outlist
+
     except Exception as e:
         log.error('CLASSICAL FIXES: Error expanding list: ' + str(e))
 
@@ -291,7 +302,29 @@ def RenumberFiles(files):
         file.update()
         
 
-
+def rearrangeArtists(artists, f):
+    foundConductor = ''
+    foundOrchestra = ''
+    for artist in artists:
+        #log.debug('CLASSICAL FIXES: Processing album artist: ' + artist)
+        if AreSimilar(artist.lower(), f.metadata['conductor'].lower()):
+            #log.debug('CLASSICAL FIXES: Found Conductor in album artist')
+            foundConductor=artist
+            continue
+        if AreSimilar(artist.lower(), f.metadata['orchestra'].lower()):
+            #log.debug('CLASSICAL FIXES: Found orchestra in album artist')
+            foundOrchestra=artist
+            continue
+    
+    newArtists = []
+    if foundConductor:
+        newArtists.append(f.metadata['conductor'])
+    if foundOrchestra:
+        newArtists.append(f.metadata['orchestra'])
+    for artist in artists:
+        if artist.lower() != foundOrchestra.lower() and artist.lower() != foundConductor.lower():
+            newArtists.append(artist)
+    return newArtists
 
         
 
@@ -318,7 +351,9 @@ def fixFile(f):
             f.metadata['albumArtist'] = f.metadata['album artist']
 
         if 'albumartist' in f.metadata:
-            trackAlbumArtists = expandList(f.metadata['albumartist'])                                       
+            trackAlbumArtists = expandList(f.metadata['albumartist'])        
+
+        log.debug('Normalized track albumartists: ' + str(trackAlbumArtists))
         
         #Find missing composer, orchestra, and conductor
         #log.debug('CLASSICAL FIXES: Checking artists to fill conductor, composer, and orchestra tags if needed.')
@@ -360,7 +395,6 @@ def fixFile(f):
                     f.metadata['epoque'] = foundArtist.primaryepoque
             else:
                 log.debug('CLASSICAL FIXES: No albumartists found for key: ' + trackAlbumArtistKey)
-
         
         #if there is a composer, look it up against the list and replace what is there if it is different.
         #same with view.
@@ -425,117 +459,61 @@ def fixFile(f):
                     f.metadata['orchestra'] = artist
                     break
 
-        #TODO: refactor - extract method
         #if there is a conductor or an orchestra tag, and either are in the album artist tag, rearrange
         log.debug('CLASSICAL FIXES: checking for conductor and orchestra in album artists.')
-        if 'conductor' in f.metadata or 'orchestra' in f.metadata:
-            #log.debug('CLASSICAL FIXES: albumartist: ' + '; '.join(trackAlbumArtists))
-            #log.debug('CLASSICAL FIXES: conductor: ' + f.metadata['conductor'])
-            #log.debug('CLASSICAL FIXES: orchestra: ' + f.metadata['orchestra'])
+        trackAlbumArtists = rearrangeArtists(trackAlbumArtists, f)
 
-            foundConductor = ''
-            foundOrchestra = ''
-            #log.debug('CLASSICAL FIXES: Track artists count: ' + len(trackAlbumArtists))
-            for artist in trackAlbumArtists:
-                #log.debug('CLASSICAL FIXES: Processing album artist: ' + artist)
-                if AreSimilar(artist.lower(), f.metadata['conductor'].lower()):
-                    #log.debug('CLASSICAL FIXES: Found Conductor in album artist')
-                    foundConductor=artist
-                    continue
-                if AreSimilar(artist.lower(), f.metadata['orchestra'].lower()):
-                    #log.debug('CLASSICAL FIXES: Found orchestra in album artist')
-                    foundOrchestra=artist
-                    continue
-            if foundConductor or foundOrchestra:            
-                newAlbumArtistTag = []
-                if foundConductor:
-                    newAlbumArtistTag.append(f.metadata['conductor'])
-                if foundOrchestra:
-                    newAlbumArtistTag.append(f.metadata['orchestra'])
-                for artist in trackAlbumArtists:
-                    if artist.lower() != foundOrchestra.lower() and artist.lower() != foundConductor.lower():
-                        newAlbumArtistTag.append(artist)
-                    tagValue = '; '.join(str(a) for a in newAlbumArtistTag )
-                log.info('CLASSICAL FIXES: Setting album artist to: ' + tagValue )
-                if f.metadata['albumartist'] != tagValue:
-                    f.metadata['albumartist'] = tagValue
+        #if there is a conductor or an orchestra tag, and either are in the album artist tag, rearrange
+        log.debug('CLASSICAL FIXES: checking for conductor and orchestra in artists.')
+        trackArtists = rearrangeArtists(trackArtists, f)
 
-       
-        #if there is a conductor or an orchestra tag, and either are in the artist tag, rearrange
-        log.debug('CLASSICAL FIXES: checking for conductor and orchestra in artists')
-        if 'conductor' in f.metadata or 'orchestra' in f.metadata:
-            log.debug('CLASSICAL FIXES: There is a conductor and orchestra tag')
-            foundConductor = ''
-            foundOrchestra = ''
-            #log.debug('CLASSICAL FIXES: Track artists count: ' + len(trackAlbumArtists))
-            for artist in trackArtists:
-                #log.debug('CLASSICAL FIXES: Processing artist: ' + artist + ' - conductor is: ' + f.metadata['conductor'])
-                if AreSimilar(artist.lower(), f.metadata['conductor'].lower()):
-                    #log.debug('CLASSICAL FIXES: Found Conductor in artist')
-                    foundConductor=artist
-                if AreSimilar(artist.lower(), f.metadata['orchestra'].lower()):
-                    #log.debug('CLASSICAL FIXES: Found orchestra in artist')
-                    foundOrchestra=artist
-            if foundConductor or foundOrchestra:            
-                newArtistTag = []
-                if foundConductor:
-                    newArtistTag.append(f.metadata['conductor'])
-                if foundOrchestra:
-                    newArtistTag.append(f.metadata['orchestra'])
-                for artist in trackArtists:
-                    if artist.lower() != foundConductor.lower() and artist.lower() != foundOrchestra.lower():
-                        newArtistTag.append(artist)
-                log.info('CLASSICAL FIXES: Setting artist to: ' + str(newArtistTag))
-                if f.metadata['artist'] != newArtistTag:
-                    f.metadata['artist'] = newArtistTag                       
-
-        #resetting arrays
-        trackAlbumArtists = expandList(f.metadata['albumartist'])
-        trackArtists = expandList(f.metadata['artist'])
+        ##resetting arrays
+        # trackAlbumArtists = expandList(f.metadata['albumartist'])
+        # trackArtists = expandList(f.metadata['artist'])
         
         #if an artist or album artist tag contains "&", but is not in the pattern below, split it
         #  ([&]|[and]) ([Hh]is Orchestra|Chorus)
-        newArtistTag = []
-        for aa in trackAlbumArtists:
-            artist = str(aa)
-            if artist.find('&') != -1:
-                log.debug('Found &')
-                if not AMP_RE.search(artist):
-                    #split by the amp
-                    log.debug('No Amp found. expanding artist: ' + artist)
-                    newArtistTag += expandList(artist,'&')
-                else:
-                    log.debug('appending: ' + artist)
-                    newArtistTag.append(artist)
+        # newArtistTag = []
+        # for aa in trackAlbumArtists:
+            # artist = str(aa)
+            # if artist.find('&') != -1:
+                # log.debug('Found &')
+                # if not AMP_RE.search(artist):
+                    # #split by the amp
+                    # log.debug('No Amp found. expanding artist: ' + artist)
+                    # newArtistTag += expandList(artist,'&')
+                # else:
+                    # log.debug('appending: ' + artist)
+                    # newArtistTag.append(artist)
 
-            else:
-                log.debug('appending: ' + artist)
-                newArtistTag.append(artist)
-        if f.metadata['albumartist'] != newArtistTag:
-            f.metadata['albumartist'] = newArtistTag                       
+            # else:
+                # log.debug('appending: ' + artist)
+                # newArtistTag.append(artist)
+        # if f.metadata['albumartist'] != newArtistTag:
+            # f.metadata['albumartist'] = newArtistTag                       
         
-        newArtistTag = []
-        for aa in trackArtists:
-            artist = str(aa)
-            if artist.find('&') != -1:
-                log.debug('Found &')
-                if not AMP_RE.search(artist):
-                    #split by the amp
-                    log.debug('No Amp found. expanding artist: ' + artist)
-                    newArtistTag += expandList(artist,'&')
-                else:
-                    log.debug('appending: ' + artist)
-                    newArtistTag.append(artist)
+        # newArtistTag = []
+        # for aa in trackArtists:
+            # artist = str(aa)
+            # if artist.find('&') != -1:
+                # log.debug('Found &')
+                # if not AMP_RE.search(artist):
+                    # #split by the amp
+                    # log.debug('No Amp found. expanding artist: ' + artist)
+                    # newArtistTag += expandList(artist,'&')
+                # else:
+                    # log.debug('appending: ' + artist)
+                    # newArtistTag.append(artist)
 
-            else:
-                log.debug('appending: ' + artist)
-                newArtistTag.append(artist)
-        if f.metadata['artist'] != newArtistTag:
-            f.metadata['artist'] = newArtistTag                       
+            # else:
+                # log.debug('appending: ' + artist)
+                # newArtistTag.append(artist)
+        # if f.metadata['artist'] != newArtistTag:
+            # f.metadata['artist'] = newArtistTag                       
         
-        #resetting arrays
-        trackAlbumArtists = expandList(f.metadata['albumartist'])
-        trackArtists = expandList(f.metadata['artist'])
+        # #resetting arrays
+        # trackAlbumArtists = expandList(f.metadata['albumartist'])
+        # trackArtists = expandList(f.metadata['artist'])
 
         #log.debug('CLASSICAL FIXES: Before - albumartist is: ' + f.metadata['albumartist'] + '|')
         
@@ -548,19 +526,20 @@ def fixFile(f):
                 if not AreSimilar(artist.strip().lower(), f.metadata['composer'].strip().lower()):
                     newArtists.append(artist.strip())
             if newArtists:
-                if f.metadata['artist'] != newArtists:
-                    f.metadata['artist'] = newArtists
+                trackArtists = newArtists
                     
             for albumArtist in trackAlbumArtists:
                 if not AreSimilar(albumArtist.strip().lower(), f.metadata['composer'].strip().lower()):
                     newAlbumArtistTag.append(albumArtist.strip())
             if newAlbumArtistTag:
-                f.metadata['albumartist'] = '; '.join(str(a) for a in newAlbumArtistTag)
-
-        #log.debug('CLASSICAL FIXES: After - albumartist is: ' + f.metadata['albumartist'] + '|')
+                trackAlbumArtists = newAlbumArtistTag
         
+        log.info('Setting album artist to: ' + '; '.join(trackAlbumArtists))
+        f.metadata['albumartist'] = '; '.join(trackAlbumArtists)
+        f.metadata['album artist'] = '; '.join(trackAlbumArtists)    
         
-        #TODO: Keep album artists in array until here, now assign.
+        log.info('Setting artists to: ' + str(trackArtists))        
+        f.metadata['artist'] = trackArtists
 
         if f.metadata['albumartist'] == 'Various':
             f.metadata['albumartist'] = 'Various Artists'
