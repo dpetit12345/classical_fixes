@@ -303,29 +303,34 @@ def RenumberFiles(files):
         
 
 def rearrangeArtists(artists, f):
-    foundConductor = ''
-    foundOrchestra = ''
-    for artist in artists:
-        #log.debug('CLASSICAL FIXES: Processing album artist: ' + artist)
-        if AreSimilar(artist.lower(), f.metadata['conductor'].lower()):
-            #log.debug('CLASSICAL FIXES: Found Conductor in album artist')
-            foundConductor=artist
-            continue
-        if AreSimilar(artist.lower(), f.metadata['orchestra'].lower()):
-            #log.debug('CLASSICAL FIXES: Found orchestra in album artist')
-            foundOrchestra=artist
-            continue
-    
-    newArtists = []
-    if foundConductor:
-        newArtists.append(f.metadata['conductor'])
-    if foundOrchestra:
-        newArtists.append(f.metadata['orchestra'])
-    for artist in artists:
-        if artist.lower() != foundOrchestra.lower() and artist.lower() != foundConductor.lower():
-            newArtists.append(artist)
-    return newArtists
-
+    try:
+        foundConductor = ''
+        foundOrchestra = ''
+        if type(artists) is not list:
+            artists = [artists]
+        for artist in artists:
+            #log.debug('CLASSICAL FIXES: Processing album artist: ' + artist)
+            if AreSimilar(artist.lower(), f.metadata['conductor'].lower()):
+                log.debug('CLASSICAL FIXES: Found similar Conductor in artist ' + artist)
+                foundConductor=artist
+                continue
+            if AreSimilar(artist.lower(), f.metadata['orchestra'].lower()):
+                log.debug('CLASSICAL FIXES: Found similar Orchestra in artist ' + artist)
+                foundOrchestra=artist
+                continue
+        
+        newArtists = []
+        if foundConductor:
+            newArtists.append(f.metadata['conductor'])
+        if foundOrchestra:
+            newArtists.append(f.metadata['orchestra'])
+        for artist in artists:
+            if artist.lower() != foundOrchestra.lower() and artist.lower() != foundConductor.lower():
+                newArtists.append(artist)
+        return newArtists
+    except Exception as e:
+        log.error('Error rearranging arists: ' + str(e))
+        return artists
         
 
 #Read the lookup table into a global variable    
@@ -466,57 +471,7 @@ def fixFile(f):
         #if there is a conductor or an orchestra tag, and either are in the album artist tag, rearrange
         log.debug('CLASSICAL FIXES: checking for conductor and orchestra in artists.')
         trackArtists = rearrangeArtists(trackArtists, f)
-
-        ##resetting arrays
-        # trackAlbumArtists = expandList(f.metadata['albumartist'])
-        # trackArtists = expandList(f.metadata['artist'])
-        
-        #if an artist or album artist tag contains "&", but is not in the pattern below, split it
-        #  ([&]|[and]) ([Hh]is Orchestra|Chorus)
-        # newArtistTag = []
-        # for aa in trackAlbumArtists:
-            # artist = str(aa)
-            # if artist.find('&') != -1:
-                # log.debug('Found &')
-                # if not AMP_RE.search(artist):
-                    # #split by the amp
-                    # log.debug('No Amp found. expanding artist: ' + artist)
-                    # newArtistTag += expandList(artist,'&')
-                # else:
-                    # log.debug('appending: ' + artist)
-                    # newArtistTag.append(artist)
-
-            # else:
-                # log.debug('appending: ' + artist)
-                # newArtistTag.append(artist)
-        # if f.metadata['albumartist'] != newArtistTag:
-            # f.metadata['albumartist'] = newArtistTag                       
-        
-        # newArtistTag = []
-        # for aa in trackArtists:
-            # artist = str(aa)
-            # if artist.find('&') != -1:
-                # log.debug('Found &')
-                # if not AMP_RE.search(artist):
-                    # #split by the amp
-                    # log.debug('No Amp found. expanding artist: ' + artist)
-                    # newArtistTag += expandList(artist,'&')
-                # else:
-                    # log.debug('appending: ' + artist)
-                    # newArtistTag.append(artist)
-
-            # else:
-                # log.debug('appending: ' + artist)
-                # newArtistTag.append(artist)
-        # if f.metadata['artist'] != newArtistTag:
-            # f.metadata['artist'] = newArtistTag                       
-        
-        # #resetting arrays
-        # trackAlbumArtists = expandList(f.metadata['albumartist'])
-        # trackArtists = expandList(f.metadata['artist'])
-
-        #log.debug('CLASSICAL FIXES: Before - albumartist is: ' + f.metadata['albumartist'] + '|')
-        
+       
         #if there is a composer tag, and it also exists in track or album artists, remove it.
         if 'composer' in f.metadata:
             log.debug('CLASSICAL FIXES: Searching for composer in artist and album artist tags')
@@ -536,7 +491,6 @@ def fixFile(f):
         
         log.info('Setting album artist to: ' + '; '.join(trackAlbumArtists))
         f.metadata['albumartist'] = '; '.join(trackAlbumArtists)
-        f.metadata['album artist'] = '; '.join(trackAlbumArtists)    
         
         log.info('Setting artists to: ' + str(trackArtists))        
         f.metadata['artist'] = trackArtists
@@ -582,7 +536,7 @@ def fixFile(f):
                 log.info('CLASSICAL FIXES: Fixing title: ' + trackName)
                 f.metadata['title'] = trackName
             if f.metadata['album'] != albumName:
-                log.info('CLASSICAL FIXES: Fixing title: ' + albumName)
+                log.info('CLASSICAL FIXES: Fixing album: ' + albumName)
                 f.metadata['album'] = albumName
 
 
@@ -783,14 +737,8 @@ class NumberTracksInAlbumClusterAction(BaseAction):
                     continue
                 allFiles += cluster.files
                 
-            #log.debug('CLASSICAL FIXES: Total files to process: ' + str(len(allFiles)))
-            #log.debug('CLASSICAL FIXES: Unsorted:')
-            #for file in allFiles:
-            #    log.debug(track_key(file))
             allFiles = sorted(allFiles, key=track_key)
-            #log.debug('CLASSICAL FIXES: Sorted:')
-            #for file in allFiles:
-            #    log.debug(track_key(file))
+
             RenumberFiles(allFiles)           
             for cluster in objs:
                 cluster.update()
