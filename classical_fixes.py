@@ -73,7 +73,7 @@ import difflib
 from difflib import SequenceMatcher
 from datetime import datetime
 
-SUB_GENRES = ['opera', 'operetta', 'orchestral', 'symphonic', 'chamber', 'choral', 'vocal', 'sacred', 'concerto', 'sonata', 'oratorio']
+SUB_GENRES = ['opera', 'operetta', 'orchestral', 'keyboard', 'symphonic', 'chamber', 'choral', 'vocal', 'sacred', 'concerto', 'sonata', 'oratorio']
 ORCH_RE = re.compile('[Oo]rchestr|[Oo]rkest|[Pp]hilharmoni|[Cc]onsort|[Ee]nsemb|[Ss]infonia|[Ss]ymphon|[Bb]and')
 regexes = [
     ['\\b[Nn][Uu][Mm][Bb][Ee][Rr][ ]*([0-9])','#\\1'],  #Replace "Number 93" with #93
@@ -552,7 +552,8 @@ def fixFile(f):
             f.metadata['genre'] = 'Classical'
 
         #tag the file so we know when it was fixed.
-        f.metadata['classicalfixesdate'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if 'classicalfixesdate' not in f.metadata:
+            f.metadata['classicalfixesdate'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         f.update()
         
     except Exception as e:
