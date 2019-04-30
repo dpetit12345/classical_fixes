@@ -70,6 +70,7 @@ import re
 import os
 import unicodedata
 import difflib
+import copy
 from difflib import SequenceMatcher
 from datetime import datetime
 
@@ -336,10 +337,21 @@ def rearrangeArtists(artists, f):
 #Read the lookup table into a global variable    
 artistLookup = readArtists()
 
+def somethingChanged(new, orig):
+    #log.debug(str(new.rawitems))
+    #log.debug(str(orig))
+    #silly workaround. Deepcopy causes some corruption. So we cant compare a copy to the current. We have to make another copy of the current and compare that to the orig copy.
+    newcopy = copy.deepcopy(new)
+    #log.debug(str(newcopy))
+    return newcopy != orig
+
 #performs classical fixes on the file passed. This is the bulk of the implementation
 def fixFile(f):
     try:
         log.info('CLASSICAL FIXES: Processing ' + str(f))
+        
+        savedMetadata = copy.deepcopy(f.metadata)
+        
         trackArtists = []
         trackAlbumArtists = []
         global artistLookup
@@ -552,9 +564,14 @@ def fixFile(f):
             f.metadata['genre'] = 'Classical'
 
         #tag the file so we know when it was fixed.
-        if 'classicalfixesdate' not in f.metadata:
+
+        if somethingChanged(f.metadata, savedMetadata):
+            log.debug('Something changed. Updating.')
             f.metadata['classicalfixesdate'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        f.update()
+            f.update()
+        else:
+            log.debug('Nothing changed for this file.')
+
         
     except Exception as e:
         log.error('CLASSICAL FIXES: An error occured fixing the file: ' + str(e))
