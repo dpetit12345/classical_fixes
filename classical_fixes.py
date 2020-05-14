@@ -65,6 +65,7 @@ from picard import log
 from picard.cluster import Cluster
 from picard.album import Album
 from picard.ui.itemviews import BaseAction, register_cluster_action, register_album_action, register_clusterlist_action, register_file_action, register_track_action
+import operator
 import types
 import re
 import os
@@ -424,7 +425,7 @@ def fixFile(f):
             if composerKey in artistLookup:
                 foundComposer = artistLookup[composerKey]
                 if foundComposer.primaryrole == 'Composer':
-                    log.info('CLASSICAL FIXES: Found composer in lookup - setting tags')
+                    log.info('CLASSICAL FIXES: Found composer in lookup - setting tags: name-' + foundComposer.name + '|sowd-' + foundComposer.sortorderwithdates)
                     f.metadata['composer'] = foundComposer.name
                     f.metadata['composer view'] = foundComposer.sortorderwithdates
                     f.metadata['composersort'] = foundComposer.sortorder
@@ -754,8 +755,8 @@ class NumberTracksInAlbumClusterAction(BaseAction):
                 if not isinstance(cluster, Cluster) or not cluster.files:
                     continue
                 allFiles += cluster.files
-                
-            allFiles = sorted(allFiles, key=track_key)
+
+            allFiles = sorted(allFiles, key=operator.attrgetter('filename'))
 
             RenumberFiles(allFiles)           
             for cluster in objs:
@@ -911,3 +912,5 @@ register_file_action(NumberTracksInAlbumFileAction())
 register_file_action(ComposerFileAction())
 register_file_action(ConductorFileAction())
 register_file_action(OrchestraFileAction())
+
+
